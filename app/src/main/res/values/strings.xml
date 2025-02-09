@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KotlinStart</string>
+    <string name="title_activity_login_page">LoginPage</string>
+    <string name="title_activity_image_load_page">ImageLoadPage</string>
+</resources>
