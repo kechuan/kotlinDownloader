@@ -1,7 +1,15 @@
 package com.example.kotlinstart.ui.widget.catalogs.downloadPage
 
 import AddTaskDialog
+import DownloadTask
 import FileTile
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 //import NewDownloadTaskDialog
 
 import androidx.compose.foundation.background
@@ -28,14 +36,29 @@ import androidx.compose.runtime.*
 
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.documentfile.provider.DocumentFile
 //import com.example.kotlinstart.MultiThreadDownloadManager
 import com.example.kotlinstart.ui.widget.catalogs.DownloadRoutes
+import com.example.kotlinstart.ui.widget.catalogs.downloadPage.preallocateSpace
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 
 import kotlinx.coroutines.delay
 
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.joinAll
 
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import java.io.FileOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
 
 import kotlin.random.Random
 
@@ -44,21 +67,26 @@ fun DownloadTaskPage(){
     val parentNavController = MainViewModel.localNavController.current
     val downloadNavController = DownloadViewModel.localDownloadNavController.current
 
+    val localContext = LocalContext.current
 
-//    var newTaskDialogStatus = remember { mutableStateOf(false) }
     var newTaskDialogStatus by remember { mutableStateOf(false) }
+
+
 
     if(newTaskDialogStatus) {
         AddTaskDialog(
-            linkUrl = "linkHere",
+            linkUrl = "", //预计读取剪切板
             onDismiss = { newTaskDialogStatus = false },
             onConfirm = { downloadTask ->
-                DownloadViewModel.addTask(
-                    downloadTask.taskName,
-                    downloadTask.storagePath
+
+                MultiThreadDownloadManager.addTask(
+                    context = localContext,
+                    downloadTask = downloadTask
                 )
+
+                println("result:$downloadTask")
             },
-            defaultSavePath = "..",
+            defaultStoragePath = null,
             dialogStatus = newTaskDialogStatus
 
         )
@@ -70,14 +98,7 @@ fun DownloadTaskPage(){
 
             FlutterDesignWidget.AppBar(
                 onClick = {
-//                    downloadNavController.popBackStack( ImageRoutes.ImageLoadPage.name, inclusive = true)
-//
-//                    downloadNavController.navigate(ImageRoutes.ImageLoadPage.name){
-//                        popUpTo(ImageRoutes.ImageLoadPage.name){ inclusive = true }
-//                    }
                     parentNavController.popBackStack()
-
-
                 },
                 title = { Text("DownloadPage") },
                 actions = {
@@ -138,6 +159,24 @@ fun DownloadTaskPage(){
                                 }
                             )
 
+//                            HorizontalDivider()
+//
+//                            DropdownMenuItem(
+//                                text = { Text("") },
+//                                onClick = {
+//                                    toolbarExpandedStatus = false
+//                                    downloadNavController.navigate(
+//                                        DownloadRoutes.DownloadSettingPage.name
+//                                    )
+//                                },
+//                                leadingIcon = {
+//                                    Icon(
+//                                        Icons.Outlined.Settings,
+//                                        contentDescription = null
+//                                    )
+//                                }
+//                            )
+
                         }
                     }
 
@@ -186,12 +225,12 @@ fun DownloadTaskPage(){
 
                     ) {
 
-                        LaunchedEffect(downloadingTasks.size) {
-                            while (true) {
-                                delay(500L)
-                                DownloadViewModel.updateAllTask(List(downloadingTasks.size){ Random.nextFloat() })
-                            }
-                        }
+//                        LaunchedEffect(downloadingTasks.size) {
+//                            while (true) {
+//                                delay(500L)
+//                                DownloadViewModel.updateAllTask(List(downloadingTasks.size){ Random.nextFloat() })
+//                            }
+//                        }
 
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -248,8 +287,8 @@ fun DownloadTaskPage(){
 
                                     FileTile(
                                         taskName = "Item $it",
-                                        progress = downloadingTasks[it].progress,
-                                        totalSize = 1024*1000
+                                        progress = (downloadingTasks[it].chunkProgress.sum()/downloadingTasks[it].fileSize.toFloat()),
+                                        totalSize = downloadingTasks[it].fileSize
                                     )
 
 
@@ -312,21 +351,122 @@ fun TextTabs(
 
 }
 
+const val fixedSize: Long = 14550954
 
 @Composable
 fun TaskFAB(
     deleteStatus:Boolean
 ) {
 
-    FloatingActionButton(
-        onClick = {
-            if(deleteStatus){
-                DownloadViewModel.removeTask("test")
+    val localContext = LocalContext.current
+
+    var storagePath : Uri? = null
+    var fileStoragePath : Uri? = null
+
+
+    val scope = rememberCoroutineScope()
+
+    val directoryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let {
+
+            val takeFlags =
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+
+            localContext.contentResolver
+                .takePersistableUriPermission(it, takeFlags)
+
+            storagePath = DocumentFile.fromTreeUri(localContext, it)?.uri
+
+            val targetFile = DocumentsContract.createDocument(
+                localContext.contentResolver,
+                storagePath!!,
+                "",
+                "foobox_x64.cn.v7.40-1.exe"
+            )
+
+
+            MultiThreadDownloadManager.addTask(
+                context = localContext,
+                DownloadTask(
+                    taskName = "foobox_x64.cn.v7.40-1.exe",
+                    taskID = "A001", //TODO 相同ID处理机制When..
+//                    downloadUrl = "https://cn.ejie.me/uploads/setup_Clover@3.5.6.exe", //HTTP protocol ban
+                    downloadUrl = "https://github.com/dream7180/foobox-cn/releases/download/7.40/foobox_x64.cn.v7.40-1.exe",
+                    storagePath = targetFile!!,
+//                    fileSize = 0L,
+                    fileSize = 15342905L,
+                    speedLimit = 0L,
+                    threadCount = 1,
+                ),
+            )
+
+            scope.launch{
+                MultiThreadDownloadManager.waitForAll()
             }
 
-            else{
-                DownloadViewModel.addTask("test ${DownloadViewModel.downloadingTasksFlow.value.size}","storage/0/Download/test.txt")
+
+        } ?: println("No directory selected.")
+    }
+
+    // 创建启动器来启动文件选择器，并处理结果
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            if (uri != null) {
+                Log.d("test","uri:$uri")
+                fileStoragePath = uri
+
+                fileStoragePath = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FkotlinStartPicture%2FtargetDir%2FJetpack%20Compose.pdf")
+//
+//
+//
+//                fileStoragePath.lastPathSegment
+
+                scope.launch{
+//                    writeSpace(
+//                        context = localContext,
+//                        uri = uri,
+//                    )
+                }
+
             }
+        }
+    )
+
+    FloatingActionButton(
+        onClick = {
+
+//            if(deleteStatus){
+//                DownloadViewModel.removeTask("test")
+//            }
+//
+//            else{
+//                DownloadViewModel.addTask("test ${DownloadViewModel.downloadingTasksFlow.value.size}","storage/0/Download/test.txt")
+//            }
+
+
+
+
+            // 目标写入文件夹 DocumentTree
+             directoryLauncher.launch(null)
+
+            // 需要迁移的文件 DocumentUri
+//            filePickerLauncher.launch(input = Array<String>(size = 1,init = {index -> "*/*"}))
+
+
+
+
+
+
+
+//            scope.launch{
+//                MultiThreadDownloadManager.waitForAll()
+//            }
+
+
         },
     ) {
         Icon(
@@ -334,4 +474,128 @@ fun TaskFAB(
             contentDescription = "Localized description"
         )
     }
+}
+
+fun createEmptyFile(
+    context: Context,
+    fileName: String,
+    storagePath: Uri,
+    size: Long,
+): Uri? {
+
+
+    return try {
+
+        val uri = DocumentsContract.createDocument(
+            context.contentResolver,
+            storagePath, // 之前通过 OpenDocumentTree 获得的目录 Uri
+            "application/octet-stream",
+            fileName
+        )
+
+        // 预分配空间（可选）
+        uri?.let {
+            preallocateSpace(context,it,size)
+        }
+
+        return uri
+
+    }
+
+    catch (e: Exception) {
+        println(e.toString())
+        return null
+    }
+}
+
+fun preallocateSpace(context: Context, uri: Uri, targetSize: Long) {
+    try {
+        context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+            FileOutputStream(pfd.fileDescriptor).use { fos ->
+                // 移动到目标位置-1（因为写入1字节会自动扩展）
+                fos.channel.position(targetSize - 1).use {
+                    fos.write(0) // 写入单个空字节
+                }
+            }
+        }
+    } catch (e: IOException) {
+        Log.e("PreAlloc", "空间预分配失败：${e.message}")
+    }
+}
+
+//suspend fun writeSpace(
+//    context: Context,
+//    uri: Uri,
+//    chunkSize: Int = 2 * 1024 * 1024 // 2MB/chunk
+//) {
+//
+//    val contentResolver = context.contentResolver
+////    var currentPosition = 0L
+//
+//    // 获取文件总大小（示例用固定值）
+//    val chunkList = calculateChunks(fixedSize,chunkSize.toLong())
+//
+//    var bufferLength = 8192
+//
+//    val scope = CoroutineScope(Dispatchers.IO)
+//
+//
+//    val jobs = mutableListOf<Job>()
+//
+//    chunkList.map {
+//
+//        var rangeStart = it.first //start
+//
+//
+//        val job = scope.launch {
+//
+//            withContext(Dispatchers.IO) {
+//                val connection = URL(url).openConnection() as HttpURLConnection
+//                    connection.setRequestProperty("Range", "bytes=$start-$end")
+//
+//                    connection.inputStream.use { input ->
+//                }
+//
+//                contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+//                    FileOutputStream(pfd.fileDescriptor).use { fos ->
+//                        fos.channel.use { channel ->
+//                            channel.position(rangeStart)
+//                            fos.write(bufferLength)
+//
+//                            println("${Thread.currentThread().name} [$rangeStart/${it.second}]")
+//
+//                            rangeStart += bufferLength
+//
+//                            if (it.second - rangeStart < bufferLength) {
+//                                bufferLength = (it.second - rangeStart).toInt()
+//                            }
+//                        }
+//                    }
+//                }
+//
+//            }
+//
+//
+//
+//            jobs.add(job)
+//
+//
+//        }
+//
+//
+//}
+//
+//    jobs.joinAll()
+//
+//}
+
+fun calculateChunks(fileSize: Long, chunkSize: Long): List<Pair<Long, Long>> {
+    val chunks = mutableListOf<Pair<Long, Long>>()
+    var start = 0L
+    while (start < fileSize) {
+        val end = (start + chunkSize - 1).coerceAtMost(fileSize - 1)
+        chunks.add(start to end)
+        start += chunkSize
+    }
+    return chunks
 }

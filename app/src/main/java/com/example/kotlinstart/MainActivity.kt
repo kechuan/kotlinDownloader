@@ -267,7 +267,7 @@ fun GreetingPreview() {
     // 创建启动器来启动文件选择器，并处理结果
     val filePickerLauncher = rememberLauncherForActivityResult(
          contract = ActivityResultContracts.OpenDocument(),
-        onResult = { uri ->
+            onResult = { uri ->
             if (uri != null) {
 
                 Log.d("test","uri:$uri")

@@ -178,9 +178,7 @@ object StorageModel {
                     targetFileName
                 )
 
-
                 Log.d("test","testUri: ${targetFile?.path}")
-
 
                 targetFile?.let {
                     context.contentResolver.openOutputStream(it)?.use { outputStream ->

@@ -1,3 +1,7 @@
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +35,7 @@ import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.net.URL
 
 @Composable
@@ -38,14 +43,14 @@ fun AddTaskDialog(
     linkUrl: String,
     onDismiss: () -> Unit,
     onConfirm: (DownloadTask) -> Unit, // 最终确认回调
-    defaultSavePath: String,
+    defaultStoragePath: Uri? = null,
     dialogStatus: Boolean
 ) {
     var url by remember { mutableStateOf(linkUrl) }
     var fileName by remember { mutableStateOf("") }
-    var storagePath by remember { mutableStateOf(defaultSavePath) }
-    var speedLimitRange by remember { mutableStateOf(0F) } // 0 表示不限速
-    var threadCount by remember { mutableStateOf(4) }
+    var storagePath by remember { mutableStateOf(defaultStoragePath) }
+    var speedLimitRange by remember { mutableFloatStateOf(0F) } // 0 表示不限速
+    var threadCount by remember { mutableIntStateOf(1) }
     var isAutoNamed by remember { mutableStateOf(true) } // 标记是否自动命名
 
     val localContext = LocalContext.current
@@ -55,9 +60,19 @@ fun AddTaskDialog(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         uri?.let {
-            storagePath = DocumentFile.fromTreeUri(localContext, it)?.name ?: storagePath
-        }
+
+            val takeFlags =
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+
+            localContext.contentResolver
+                .takePersistableUriPermission(it, takeFlags)
+
+            storagePath = DocumentFile.fromTreeUri(localContext, it)?.uri
+
+        } ?: println("No directory selected.")
     }
+
 
     // 自动获取文件名逻辑
     LaunchedEffect(dialogStatus, url) {
@@ -66,6 +81,7 @@ fun AddTaskDialog(
                 // 模拟网络请求获取文件名
                 withContext(Dispatchers.IO) {
                     delay(500) // 模拟网络延迟
+                    // TODO 预计行为是HEAD请求获取size与name 否则就默认采用后缀名
                     URL(url).path.substringAfterLast('/')
                 }
             }
@@ -116,8 +132,9 @@ fun AddTaskDialog(
                     // 存储目录
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
-                            value = storagePath,
-                            onValueChange = { storagePath = it },
+                            value = storagePath?.path ?: "",
+//                            onValueChange = { storagePath = it }, URI问题
+                            onValueChange = {  },
                             label = { Text("存储目录") },
                             modifier = Modifier.weight(1f),
                             readOnly = true
@@ -132,7 +149,7 @@ fun AddTaskDialog(
                     // 限速设置
                     Column {
 
-                        Text("下载限速: ${if (speedLimitRange == 0F) "不限速" else "${convertBinaryType(value = (speedLimitRange*50/20).toLong())}MB/s"}")
+                        Text("下载限速: ${if (speedLimitRange == 0F) "不限速" else "${convertBinaryType(value = (speedLimitRange*(50*BinaryType.MB.size)).toLong())}/s"}")
                         Slider(
                             value = speedLimitRange,
                             onValueChange = { speedLimitRange = it },
@@ -166,19 +183,65 @@ fun AddTaskDialog(
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         TextButton(onClick = {
-                            onConfirm(
-                                DownloadTask(
-                                    taskName = fileName,
-                                    taskID = url.hashCode().toString(),
-                                    downloadUrl = url,
-                                    storagePath = storagePath,
-                                    speedLimit = 12*BinaryType.MB.size,
-                                    threadCount = threadCount,
-//                                    progressCallback = {
-////                                        DownloadViewModel.updateTaskProgress(fileName,)
+
+//                            val storagePathHash:File = File(storagePath)
+//
+//                            // TODO 封禁情况
+//                            // 1.isDirectory
+//                            // 2.not granted path
+
+                            storagePath?.let { storagePath ->
+                                if(storagePath.path!!.isNotEmpty()){
+
+                                    //granted检测
+                                    val permissionList = localContext.contentResolver.persistedUriPermissions
+
+//                                    if(permissionList.any{ it.uri == storagePath }){
+
+                                        //拼接 documentTreeUri 为 documentUri
+
+                                        val docID = DocumentsContract.getTreeDocumentId(storagePath)
+                                        val parentUri = DocumentsContract.buildDocumentUriUsingTree(storagePath, docID)
+
+
+                                        val targetFile = DocumentsContract.createDocument(
+                                            localContext.contentResolver,
+                                            parentUri,
+                                            "",
+                                            fileName
+                                        )
+
+                                        Log.d("confirm Task","storageUri: $targetFile")
+
+                                        onConfirm(
+
+                                            DownloadTask(
+                                                taskName = fileName,
+                                                taskID = url.hashCode().toString(), //TODO 相同ID处理机制When..
+                                                downloadUrl = url,
+//                                                storagePath = storagePath,
+                                                storagePath = targetFile!!,
+                                                speedLimit = (speedLimitRange*(50*BinaryType.MB.size)).toLong(),
+                                                threadCount = threadCount,
+                                            ),
+
+
+
+                                        )
 //                                    }
-                                )
-                            )
+
+//                                    else{
+                                        //TODO not granted toaster
+//                                        println("该目录没有授权,请重新选择该目录进行授权")
+//                                        println("已授权目录: $permissionList")
+//                                    }
+
+                                }
+
+                            }
+//
+
+
                             onDismiss()
                         }) {
                             Text("确认")

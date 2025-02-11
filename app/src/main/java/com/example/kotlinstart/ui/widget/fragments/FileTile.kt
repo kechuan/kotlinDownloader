@@ -56,7 +56,7 @@ fun FileTile(
                             lastProgress = progress
                         }
 
-                        Text(text = "size: ${convertBinaryType(totalSize)}")
+                        Text(text = "size: ${if(totalSize == 0L) "正在查询信息..." else convertBinaryType(totalSize) }")
                     }
 
 

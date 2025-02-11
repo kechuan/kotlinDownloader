@@ -115,9 +115,6 @@ object TestMultiThreadDownloadManager {
                     }
                 }
 
-//                //进入下载状态 判别为 非 emptyList 时
-//                downloadingTaskState.value = downloadingTaskFlow.value + TestDownloadTask
-
                 // 并发等待所有块下载完成
                 chunkJobs.joinAll()
 
