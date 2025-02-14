@@ -1,3 +1,5 @@
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,25 +15,47 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import kotlin.collections.find
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FileTile(
+    taskID: String,
     taskName: String,
     progress: Float,
+    currentSpeed: Long,
     totalSize: Long
 ){
 
-    var multiCheckStatus by remember { mutableStateOf(false) }
-    var lastProgress = 0.0F
-
+//    var multiCheckStatus by remember { mutableStateOf(false) }
 
     ListItem(
+        modifier = Modifier.combinedClickable(
+            onClick = {
 
+                if(
+                    TaskStatus.Paused == MultiThreadDownloadManager.downloadingTaskFlow.value.find {
+                        it.taskInformation.taskID == taskID &&
+                        it.taskStatus == TaskStatus.Activating || it.taskStatus == TaskStatus.Paused
+                    }?.taskStatus
+                ){
+                    MultiThreadDownloadManager.updateTaskStatus(taskID, taskStatus = TaskStatus.Activating)
+                }
+
+                else{
+                    MultiThreadDownloadManager.updateTaskStatus(taskID, taskStatus = TaskStatus.Paused)
+                }
+
+
+
+
+            },
+//            onLongClick = { multiCheckStatus=!multiCheckStatus }
+        ),
         headlineContent = {
             Column {
 
                 Text(text = taskName)
-
 
                 Box {
 
@@ -50,13 +74,22 @@ fun FileTile(
 //                        println("Before: taskName:$taskName, $progress/$lastProgress")
 
                         Text(
-                            text = "speed: ${convertBinaryType(totalSize*(progress - lastProgress).toLong())}",
+                            text = "speed: ${convertBinaryType(currentSpeed)}/s",
+//                            text = "speed: $currentSpeed",
                             style = TextStyle(color = Color.Black)
-                        ).run {
-                            lastProgress = progress
-                        }
+                        )
 
-                        Text(text = "size: ${if(totalSize == 0L) "正在查询信息..." else convertBinaryType(totalSize) }")
+                        Text(text =
+                            "size: ${
+                                if(totalSize == 0L) {
+                                    "正在查询信息..."
+                                } 
+                                
+                                else {
+                                    "${convertBinaryType((progress*totalSize).toLong())}/${convertBinaryType(totalSize)}"
+                                }
+                            }")
+
                     }
 
 

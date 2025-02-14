@@ -1,4 +1,8 @@
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlin.random.Random
 
 
@@ -54,7 +58,6 @@ suspend fun delayDuration(ms:Long): Long {
 //
 //}
 //
-//class Mob(
 //    override var point: Int,
 //    override var currentChange : Int.() -> Int,
 //) :HealthPoint<Int,Unit>{
@@ -66,9 +69,61 @@ suspend fun delayDuration(ms:Long): Long {
 //
 //fun Int.moreAdd() = this+2
 
+data class DownloadTask(
+    val taskStatus: TaskStatus = TaskStatus.Pending,
+)
+
+class TaskController {
+    private val _isActive = MutableStateFlow(true)
+    val isActive: StateFlow<Boolean> = _isActive.asStateFlow()
+
+    suspend fun pause() {
+        _isActive.emit(false)
+    }
+
+    suspend fun resume() {
+        _isActive.emit(true)
+    }
+}
+
 fun main(){
     val runStart :Boolean = true
     println("begin of main")
+
+    val scope = CoroutineScope(Dispatchers.IO)
+
+    runBlocking{
+        val controller = TaskController()
+        val job = launch {
+            var step = 0
+            while (true) {
+                // 如果处于暂停状态，挂起直到恢复
+                if (!controller.isActive.value) {
+                    println("任务暂停，等待恢复...")
+//                    controller.isActive.first { it } // 挂起直到 isActive 变为 true
+
+                    controller.isActive.first { it } // 挂起直到 isActive 变为 true
+                    println("任务恢复")
+                }
+
+                // 执行任务步骤
+                println("执行步骤 ${step++}")
+                delay(1000) // 模拟耗时操作
+            }
+        }
+
+        // 模拟外部触发暂停和恢复
+        delay(3000)
+        println("触发暂停")
+        controller.pause()
+
+        delay(2000)
+        println("触发恢复")
+        controller.resume()
+
+        delay(3000)
+        job.cancel() // 取消任务
+    }
 
 //    println(4.moreAdd())
 
@@ -86,26 +141,7 @@ fun main(){
 
 
 
-    if(runStart){
-        runBlocking {
 
-            TestMultiThreadDownloadManager.addTask(
-                TestDownloadTask(
-                    taskName = "",
-                    downloadUrl = "http://cn.ejie.me/uploads/setup_Clover@3.5.6.exe",
-                    storagePath = "./downloads/setup_Clover@3.5.6.exe",
-                    taskID = "Clover ${Random.nextInt()}"
-                ),
-            )
-
-            TestMultiThreadDownloadManager.waitForAll()
-
-
-            println("All downloads completed.")
-
-
-        }
-    }
 
     println("end of main")
 }

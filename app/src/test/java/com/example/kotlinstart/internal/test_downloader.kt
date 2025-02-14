@@ -187,41 +187,56 @@ object TestMultiThreadDownloadManager {
 
     // 下载单个块
     private suspend fun downloadChunk(
-        url: String, destination: String,
-        start: Long,
-        end: Long,
-        downloadCallback: ProgressCallback
-    ) {
+        url: String, destination: String = "",
+        start: Long = 0L,
+        end: Long = 1L,
+        downloadCallback: ProgressCallback = { current,total -> }
+    ): Long {
+
+        var contentLength = 0L
+
         withContext(Dispatchers.IO) {
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.setRequestProperty("Range", "bytes=$start-$end")
 
-            connection.inputStream.use { input ->
-                RandomAccessFile(destination, "rw").use { rafFile ->
-                    rafFile.seek(start) // 定位到块的起始位置
-                    val buffer = ByteArray(8*1024)
-                    val totalLength: Long = end-start
+            if(start == 0L && end == 1L){
+                contentLength = connection.contentLengthLong
+            }
 
-                    var totalBytesRead: Long = 0
-                    var currentBytesRead: Int = 0
+            else{
+                connection.inputStream.use { input ->
+                    RandomAccessFile(destination, "rw").use { rafFile ->
+                        rafFile.seek(start) // 定位到块的起始位置
+                        val buffer = ByteArray(8*1024)
+                        val totalLength: Long = end-start
+
+                        var totalBytesRead: Long = 0
+                        var currentBytesRead: Int = 0
 
 
-                    while (input.read(buffer).also { currentBytesRead = it } != -1) {
-                        rafFile.write(buffer, 0, currentBytesRead) // 将数据写入文件
-                        totalBytesRead+=currentBytesRead
+                        while (input.read(buffer).also { currentBytesRead = it } != -1) {
+                            rafFile.write(buffer, 0, currentBytesRead) // 将数据写入文件
+                            totalBytesRead+=currentBytesRead
 
-                        //实验: 0~1500 ms 网速
-                        delay((Random.nextDouble()*1500).toLong()).run { println(" ${Thread.currentThread().name} [$start/$end] $totalBytesRead/${totalLength} ") }
+                            //实验: 0~1500 ms 网速
+                            delay((Random.nextDouble()*1500).toLong()).run { println(" ${Thread.currentThread().name} [$start/$end] $totalBytesRead/${totalLength} ") }
 
-                        downloadCallback(totalBytesRead,totalLength)
+                            downloadCallback(totalBytesRead,totalLength)
 
-                        //但不符合个人需求 我需要。。多个分块叠加在一起的进度 划为速度。。
+                            //但不符合个人需求 我需要。。多个分块叠加在一起的进度 划为速度。。
 
+                        }
                     }
                 }
+                println("Downloaded chunk: $start-$end")
             }
-            println("Downloaded chunk: $start-$end")
+
+
         }
+
+        return contentLength
+
+
     }
 
     // 等待所有任务完成

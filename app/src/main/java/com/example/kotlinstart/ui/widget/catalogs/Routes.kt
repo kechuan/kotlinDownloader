@@ -19,3 +19,8 @@ enum class DownloadRoutes {
     DownloadTaskPage,
     DownloadSettingPage
 }
+
+enum class DownloadPageTabs(val index:Int){
+    DownloadingTask(0),
+    FinishedTask(1)
+}

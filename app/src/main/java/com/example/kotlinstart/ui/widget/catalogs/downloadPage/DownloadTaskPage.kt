@@ -3,6 +3,8 @@ package com.example.kotlinstart.ui.widget.catalogs.downloadPage
 import AddTaskDialog
 import DownloadTask
 import FileTile
+import MultiThreadDownloadManager.preallocateSpace
+import TaskInformation
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -38,29 +40,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.documentfile.provider.DocumentFile
+import com.example.kotlinstart.ui.widget.catalogs.DownloadPageTabs
 //import com.example.kotlinstart.MultiThreadDownloadManager
 import com.example.kotlinstart.ui.widget.catalogs.DownloadRoutes
-import com.example.kotlinstart.ui.widget.catalogs.downloadPage.preallocateSpace
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-
-import kotlinx.coroutines.delay
 
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.joinAll
 
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import java.io.FileOutputStream
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.nio.channels.FileChannel
-import java.nio.file.StandardOpenOption
-
-import kotlin.random.Random
 
 @Composable
 fun DownloadTaskPage(){
@@ -196,11 +184,11 @@ fun DownloadTaskPage(){
             val downloadingTasks by DownloadViewModel.downloadingTasksFlow.collectAsState()
             val finishedTasks by DownloadViewModel.finishedTasksFlow.collectAsState()
 
-            val pageIndexState: MutableIntState = remember { mutableIntStateOf(0) }
-            val pageState = rememberPagerState(pageCount = { 2 })
+            val pageIndexState: MutableIntState = remember { mutableIntStateOf(DownloadPageTabs.DownloadingTask.index) }
+            val pageState = rememberPagerState(pageCount = { DownloadPageTabs.entries.size })
 
             LaunchedEffect(pageState) {
-                snapshotFlow { pageState.currentPage }
+                snapshotFlow { pageState.currentPage } //TODO figure it out???
                     .collectLatest { newPage ->
                         println("当前页面: $newPage")
                         pageIndexState.intValue = newPage
@@ -209,13 +197,11 @@ fun DownloadTaskPage(){
 
             Column {
 
-                TextTabs(
+                DownloadPageTabs(
                     pagerState = pageState,
-
                     downloadingCount = downloadingTasks.size,
                     completeCount = finishedTasks.size
                 )
-
 
                 HorizontalPager(
                     state = pageState,
@@ -225,13 +211,6 @@ fun DownloadTaskPage(){
 
                     ) {
 
-//                        LaunchedEffect(downloadingTasks.size) {
-//                            while (true) {
-//                                delay(500L)
-//                                DownloadViewModel.updateAllTask(List(downloadingTasks.size){ Random.nextFloat() })
-//                            }
-//                        }
-
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.TopStart
@@ -240,56 +219,32 @@ fun DownloadTaskPage(){
                                 verticalArrangement = Arrangement.Top
                             ) {
 
-
-
                                 items(
-                                    if (pageState.currentPage == 0) {
-                                        downloadingTasks.size
-                                    } else {
-                                        finishedTasks.size
-                                    }
-
+                                    if (pageState.currentPage == DownloadPageTabs.DownloadingTask.index) { downloadingTasks.size }
+                                    else { finishedTasks.size }
                                 ) {
 
-    //                                val coroutineScope = rememberCoroutineScope()
+                                    lateinit var taskList: List<DownloadTask>
 
-                                    //需求记忆
-                                    //因为重建会包括这里的区域也重建 那么没办法 只能这样了
-                                    //                                val floatFlowState = remember { MutableStateFlow(0.0f) }
-                                    //                                val progress by floatFlowState.collectAsState()
+                                    if(pageState.currentPage == DownloadPageTabs.DownloadingTask.index){
+                                        taskList = downloadingTasks
+                                    }
 
+                                    else{
+                                        taskList = finishedTasks
+                                    }
 
-    //                                LaunchedEffect(downloadingTasks.size) {
-    //                                    while (true) {
-    //                                        delay(500L)
-    //                                        //UI 统一500ms? 更新 不让回调自己触发更新
-    //                                        //还是要让 progressCallback 独立 500ms 更新?
-    //
-    //                                        //只能后者 因为 MultiThreadDownloadManager 只有 job 没有 downloadTask 的数据保持
-    //
-    //                                        MultiThreadDownloadManager.jobs.map
-    //
-    //                                        //那么我要做的就是 获取。。这一时刻的 MultiThreadDownloadManager 所有progress?
-    //                                        //那么 lastProgress 呢 而且因为关联了 downloadingTasks.size
-    //                                        //假设变更之后 lastProgress数据丢失了怎么办 只能自己获取 DownloadViewModel 提取数据了?
-    //                                        DownloadViewModel.updateAllTask(List(downloadingTasks.size){ Random.nextFloat() })
-    //
-    ////                                            DownloadViewModel.updateTaskProgress(
-    ////                                                "test $it",
-    ////                                                Random.nextFloat()
-    ////                                            )
-    //
-    //                                    }
-    //
-    //                                }
-
+                                    Log.d("taskUI","Item ${taskList[it].taskInformation.taskName} update: ${taskList[it].chunkProgress.sum()}/${taskList[it].fileSize} ${taskList[it].chunkProgress.sum()/taskList[it].fileSize.toFloat()}%")
 
 
                                     FileTile(
-                                        taskName = "Item $it",
-                                        progress = (downloadingTasks[it].chunkProgress.sum()/downloadingTasks[it].fileSize.toFloat()),
-                                        totalSize = downloadingTasks[it].fileSize
+                                        taskID = taskList[it].taskInformation.taskID,
+                                        taskName = taskList[it].taskInformation.taskName,
+                                        progress = (taskList[it].chunkProgress.sum()/taskList[it].fileSize.toFloat()).coerceIn(0F,1F),
+                                        currentSpeed = taskList[it].currentSpeed,
+                                        totalSize = taskList[it].fileSize
                                     )
+
 
 
                                 }
@@ -308,7 +263,7 @@ fun DownloadTaskPage(){
 
 
 @Composable
-fun TextTabs(
+fun DownloadPageTabs(
     pagerState: PagerState,
     downloadingCount: Int,
     completeCount: Int,
@@ -351,8 +306,6 @@ fun TextTabs(
 
 }
 
-const val fixedSize: Long = 14550954
-
 @Composable
 fun TaskFAB(
     deleteStatus:Boolean
@@ -384,18 +337,22 @@ fun TaskFAB(
                 localContext.contentResolver,
                 storagePath!!,
                 "",
-                "foobox_x64.cn.v7.40-1.exe"
+                "Pili-arm64-v8a-1.0.26.1214.apk"
             )
+
+            val downloadUrl = "https://github.com/guozhigq/pilipala/releases/download/v1.0.26.1214/Pili-arm64-v8a-1.0.26.1214.apk"
 
 
             MultiThreadDownloadManager.addTask(
                 context = localContext,
                 DownloadTask(
-                    taskName = "foobox_x64.cn.v7.40-1.exe",
-                    taskID = "A001", //TODO 相同ID处理机制When..
-//                    downloadUrl = "https://cn.ejie.me/uploads/setup_Clover@3.5.6.exe", //HTTP protocol ban
-                    downloadUrl = "https://github.com/dream7180/foobox-cn/releases/download/7.40/foobox_x64.cn.v7.40-1.exe",
-                    storagePath = targetFile!!,
+                    taskInformation = TaskInformation(
+                        taskName = "Pili-arm64-v8a-1.0.26.1214.apk",
+                        taskID = downloadUrl.hashCode().toString(), //TODO 相同ID处理机制When..
+                        downloadUrl = downloadUrl,
+                        storagePath = targetFile!!,
+                    ),
+
 //                    fileSize = 0L,
                     fileSize = 15342905L,
                     speedLimit = 0L,

@@ -196,7 +196,10 @@ fun AddTaskDialog(
                                     //granted检测
                                     val permissionList = localContext.contentResolver.persistedUriPermissions
 
-//                                    if(permissionList.any{ it.uri == storagePath }){
+                                    if(
+//                                        permissionList.any{ it.uri == storagePath }
+                                        judgePermissionUri(permissionList,storagePath)
+                                    ){
 
                                         //拼接 documentTreeUri 为 documentUri
 
@@ -216,11 +219,12 @@ fun AddTaskDialog(
                                         onConfirm(
 
                                             DownloadTask(
-                                                taskName = fileName,
-                                                taskID = url.hashCode().toString(), //TODO 相同ID处理机制When..
-                                                downloadUrl = url,
-//                                                storagePath = storagePath,
-                                                storagePath = targetFile!!,
+                                                taskInformation = TaskInformation(
+                                                    taskName = fileName,
+                                                    taskID = url.hashCode().toString(),
+                                                    downloadUrl = url,
+                                                    storagePath = targetFile!!,
+                                                ),
                                                 speedLimit = (speedLimitRange*(50*BinaryType.MB.size)).toLong(),
                                                 threadCount = threadCount,
                                             ),
@@ -228,13 +232,15 @@ fun AddTaskDialog(
 
 
                                         )
-//                                    }
+                                    }
 
-//                                    else{
-                                        //TODO not granted toaster
-//                                        println("该目录没有授权,请重新选择该目录进行授权")
-//                                        println("已授权目录: $permissionList")
-//                                    }
+                                    else{
+                                        //  TODO not granted toaster
+                                        Log.d("TaskInfo","该目录没有授权,请重新选择该目录进行授权")
+                                        Log.d("TaskInfo","已授权目录: $permissionList")
+
+
+                                    }
 
                                 }
 
