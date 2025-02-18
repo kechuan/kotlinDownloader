@@ -1,10 +1,12 @@
 package com.example.kotlinstart.ui.widget.catalogs.downloadPage
 
 import AddTaskDialog
-import DownloadTask
+
 import FileTile
+import FileTileBottomSheet
 import MultiThreadDownloadManager.preallocateSpace
-import TaskInformation
+import com.example.kotlinstart.internal.DownloadTask
+import com.example.kotlinstart.internal.TaskInformation
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -58,6 +60,7 @@ fun DownloadTaskPage(){
     val localContext = LocalContext.current
 
     var newTaskDialogStatus by remember { mutableStateOf(false) }
+    var selectingTile by remember{ mutableStateOf(DownloadTask()) }
 
 
 
@@ -77,6 +80,15 @@ fun DownloadTaskPage(){
             defaultStoragePath = null,
             dialogStatus = newTaskDialogStatus
 
+        )
+    }
+
+    if(selectingTile.taskInformation.taskID != "taskID"){
+        FileTileBottomSheet(
+            selectingTask = selectingTile,
+            onDismiss = {
+                selectingTile = DownloadTask()
+            }
         )
     }
 
@@ -147,23 +159,6 @@ fun DownloadTaskPage(){
                                 }
                             )
 
-//                            HorizontalDivider()
-//
-//                            DropdownMenuItem(
-//                                text = { Text("") },
-//                                onClick = {
-//                                    toolbarExpandedStatus = false
-//                                    downloadNavController.navigate(
-//                                        DownloadRoutes.DownloadSettingPage.name
-//                                    )
-//                                },
-//                                leadingIcon = {
-//                                    Icon(
-//                                        Icons.Outlined.Settings,
-//                                        contentDescription = null
-//                                    )
-//                                }
-//                            )
 
                         }
                     }
@@ -194,6 +189,8 @@ fun DownloadTaskPage(){
                         pageIndexState.intValue = newPage
                     }
             }
+
+
 
             Column {
 
@@ -234,15 +231,22 @@ fun DownloadTaskPage(){
                                         taskList = finishedTasks
                                     }
 
-                                    Log.d("taskUI","Item ${taskList[it].taskInformation.taskName} update: ${taskList[it].chunkProgress.sum()}/${taskList[it].fileSize} ${taskList[it].chunkProgress.sum()/taskList[it].fileSize.toFloat()}%")
+//                                    Log.d("taskUI","Item ${taskList[it].taskInformation.taskName} update: ${taskList[it].chunkProgress.sum()}/${taskList[it].fileSize} ${(taskList[it].chunkProgress.sum()/taskList[it].fileSize)*100.toFloat()}%")
+
+                                    val progress = taskList[it].chunkProgress.sum()/taskList[it].fileSize.toFloat()
 
 
                                     FileTile(
                                         taskID = taskList[it].taskInformation.taskID,
                                         taskName = taskList[it].taskInformation.taskName,
-                                        progress = (taskList[it].chunkProgress.sum()/taskList[it].fileSize.toFloat()).coerceIn(0F,1F),
+                                        progress = if(progress >= 0F) progress else 1F,
                                         currentSpeed = taskList[it].currentSpeed,
-                                        totalSize = taskList[it].fileSize
+                                        totalSize = taskList[it].fileSize,
+                                        onClick = {
+//                                            fileTileBottomSheetStatus = true
+                                            selectingTile = taskList[it]
+                                        },
+                                        onLongClick = {}
                                     )
 
 
@@ -282,7 +286,7 @@ fun DownloadPageTabs(
             },
             selected = pagerState.currentPage == 0,
             onClick = {
-
+                //动画也是异步的 需要coroutine使用
                 coroutineScope.launch{
                     pagerState.animateScrollToPage(0)
                 }
@@ -350,7 +354,7 @@ fun TaskFAB(
                         taskName = "Pili-arm64-v8a-1.0.26.1214.apk",
                         taskID = downloadUrl.hashCode().toString(), //TODO 相同ID处理机制When..
                         downloadUrl = downloadUrl,
-                        storagePath = targetFile!!,
+                        storagePath = targetFile!!.toString(),
                     ),
 
 //                    fileSize = 0L,
@@ -377,17 +381,7 @@ fun TaskFAB(
                 fileStoragePath = uri
 
                 fileStoragePath = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FkotlinStartPicture%2FtargetDir%2FJetpack%20Compose.pdf")
-//
-//
-//
-//                fileStoragePath.lastPathSegment
 
-                scope.launch{
-//                    writeSpace(
-//                        context = localContext,
-//                        uri = uri,
-//                    )
-                }
 
             }
         }

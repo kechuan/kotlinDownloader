@@ -1,4 +1,5 @@
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -6,7 +7,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 
 import androidx.compose.material3.*
 
@@ -15,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import com.example.kotlinstart.internal.TaskStatus
 import kotlin.collections.find
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -24,34 +30,46 @@ fun FileTile(
     taskName: String,
     progress: Float,
     currentSpeed: Long,
-    totalSize: Long
+    totalSize: Long,
+    onClick: ()-> Unit,
+    onLongClick: ()-> Unit
 ){
 
-//    var multiCheckStatus by remember { mutableStateOf(false) }
+    val currentStatus = MultiThreadDownloadManager.downloadingTaskFlow.value.find {
+        it.taskInformation.taskID == taskID &&
+                it.taskStatus == TaskStatus.Activating || it.taskStatus == TaskStatus.Paused
+    }?.taskStatus
 
     ListItem(
         modifier = Modifier.combinedClickable(
-            onClick = {
 
-                if(
-                    TaskStatus.Paused == MultiThreadDownloadManager.downloadingTaskFlow.value.find {
-                        it.taskInformation.taskID == taskID &&
-                        it.taskStatus == TaskStatus.Activating || it.taskStatus == TaskStatus.Paused
-                    }?.taskStatus
-                ){
-                    MultiThreadDownloadManager.updateTaskStatus(taskID, taskStatus = TaskStatus.Activating)
-                }
-
-                else{
-                    MultiThreadDownloadManager.updateTaskStatus(taskID, taskStatus = TaskStatus.Paused)
-                }
-
-
-
-
-            },
-//            onLongClick = { multiCheckStatus=!multiCheckStatus }
+            onClick = onClick,
+            onLongClick = onLongClick
         ),
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .clickable(
+                        enabled = true,
+                        onClick = {
+                            if( TaskStatus.Paused == currentStatus ){
+                                MultiThreadDownloadManager.updateTaskStatus(taskID, taskStatus = TaskStatus.Activating)
+                            }
+
+                            else{
+                                MultiThreadDownloadManager.updateTaskStatus(taskID, taskStatus = TaskStatus.Paused)
+                            }
+
+                        }
+                    )
+            ){
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Pause"
+                )
+            }
+        },
         headlineContent = {
             Column {
 

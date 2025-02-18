@@ -1,6 +1,5 @@
 
 
-
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -9,6 +8,10 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+
+import com.example.kotlinstart.internal.DownloadTask
+import com.example.kotlinstart.internal.TaskStatus
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,63 +27,48 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 import java.io.FileOutputStream
 import java.io.IOException
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.launch
+
 import java.net.URL
-import java.io.RandomAccessFile
 import java.net.HttpURLConnection
-import java.util.Timer
-import java.util.TimerTask
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.random.Random
 
 typealias ProgressCallback = (current: Long, total: Long) -> Unit
-
-enum class TaskStatus{
-    Pending,
-    Activating,
-    Finished,
-    Paused,
-    Stopped
-}
-
 const val chunkFinished = -1
 
-@Immutable
-data class TaskInformation(
-    val taskID: String,
-    val taskName: String,
-    val downloadUrl: String,
-    val storagePath: Uri,
-)
 
-data class DownloadTask(
-    val taskInformation: TaskInformation,
-    val taskStatus: TaskStatus = TaskStatus.Pending,
-//    val chunkProgress: MutableList<Int> = mutableListOf(), //重建以更新
-    val chunkProgress: List<Int> = emptyList(), //重建以更新
-    val fileSize: Long = 0,
-    val currentSpeed: Long = 0,
-    var threadCount: Int = 1,
-    var speedLimit: Long = 0,
-)
 
 object MultiThreadDownloadManager: ViewModel() {
 
-
     private val scope = CoroutineScope(Dispatchers.IO)
     private val jobs = mutableListOf<Job>()
+
 
     private val downloadingTaskState = MutableStateFlow<List<DownloadTask>>(emptyList())
     val downloadingTaskFlow: StateFlow<List<DownloadTask>> = downloadingTaskState.asStateFlow()
 
     private val finishedTaskState = MutableStateFlow<List<DownloadTask>>(emptyList())
     val finishedTaskFlow = finishedTaskState.asStateFlow()
+
+    suspend fun init(context: Context){
+        scope.launch{
+
+            val flow = MyDataStore.getAllTasks(context)
+
+            flow.collect{ list ->
+                downloadingTaskState.value = list
+            }
+
+        }
+    }
+
 
     // 添加下载任务
     fun addTask(
@@ -89,36 +77,21 @@ object MultiThreadDownloadManager: ViewModel() {
         chunkCount: Int = 5,
     ) {
 
-        val updateTimer = Timer()
-        val activeState = MutableStateFlow(true)
-
-        val currentTaskStatusFlow: StateFlow<TaskStatus?> = downloadingTaskFlow
+        //一个大热流 转 某个属性的热流
+        val currentTaskStatusFlow: StateFlow<TaskStatus?>? = downloadingTaskFlow
             .map{
                 it.firstOrNull{ it.taskInformation.taskID == downloadTask.taskInformation.taskID }?.taskStatus
             }
-            .distinctUntilChanged()
             .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.Lazily,
+                scope = scope,
+                started = SharingStarted.WhileSubscribed(), //当下载开始时 (downloadChunk回调) 开始监听
                 initialValue = TaskStatus.Pending
             )
-
-
-
-//        val testFlow = StateFlow<TaskStatus> = downloadingTaskFlow.value
-//            .find { it.taskInformation.taskID == downloadTask.taskInformation.taskID }
-//            .stateIn(
-//                scope = viewModelScope, // 根据上下文选择合适的 CoroutineScope
-//                started = SharingStarted.WhileSubscribed(5000), // 控制订阅策略
-//                initialValue = stateFlow.value.isReady // 初始值必须显式指定
-//            )
-
 
         val job = scope.launch {
             try {
 
                 var fileSize = 0L
-                val updateInterval = 250
 
                 //没有三目表达式的情况之下 真的很不喜欢把 if/else 写在一个变量定义里
                 //假如其已经在dialog里获取到信息就直接沿用它的信息
@@ -148,10 +121,6 @@ object MultiThreadDownloadManager: ViewModel() {
                 //Int模式 利于保存
                 val currentChunkProgress = MutableList<Int>(chunks.size){0}
 
-//                val taskProgressFlow = snapshotFlow {
-//
-//                }
-
                 downloadTask.copy(
                     chunkProgress = currentChunkProgress,
                     fileSize = fileSize
@@ -162,91 +131,16 @@ object MultiThreadDownloadManager: ViewModel() {
 
                 println("Starting multi-thread download: ${URL(downloadTask.taskInformation.downloadUrl)} chunks:$chunks currentTask: $downloadTask")
 
+                MyDataStore.addTask(context = context,downloadTask)
+
                 preallocateSpace(
                     context = context,
-                    uri = downloadTask.taskInformation.storagePath,
+                    uri = Uri.parse(downloadTask.taskInformation.storagePath),
                     targetSize = fileSize
                 )
 
-                //task progress update
-                //每个任务独立一个计时器来更新UI
-                val updateTask = object : TimerTask(){
-                    override fun run(){
+                updateTaskStatus(downloadTask.taskInformation.taskID,TaskStatus.Activating)
 
-                        val currentTaskStatus: TaskStatus? = downloadingTaskFlow.value.find { it.taskInformation.taskID == downloadTask.taskInformation.taskID }?.taskStatus
-
-                        if(TaskStatus.Paused == currentTaskStatus){
-                            //保存.. range信息? 算了 初期直接stop好了
-                            //range信息保存? 干脆放到 DataStorage 好了?
-
-                            // 一个task? 一个activing?
-
-//                            val isActive = MutableStateFlow(true)
-
-                            if(activeState.value == true){
-                                val scope = CoroutineScope(Dispatchers.IO)
-                                scope.launch{ activeState.emit(false) }
-                                Log.d("taskStatus","activeState pause is emited")
-                                updateTimer.cancel()
-                                //取消后 如果想要重新恢复 那就得把timer指针也往下传递。。还是赶紧使用snapshot好了
-                            }
-
-
-                        }
-
-                        else{
-                            updateTaskStatus(downloadTask.taskInformation.taskID,TaskStatus.Activating)
-                            scope.launch{ activeState.emit(true) }
-                        }
-
-
-
-//                        Log.d("taskStatus", "New task status: ${downloadingTaskFlow.value.find { it.taskInformation.taskID == taskID }?.taskStatus}")
-
-                        //250ms update 以后可能会采用 snapshotFlow 来监听最新的操作流
-                        var recordSize = downloadingTaskFlow.value.find {
-                            it.taskInformation.taskID == downloadTask.taskInformation.taskID
-                        }?.chunkProgress?.sum() ?: 0
-
-                        val speed = ((currentChunkProgress.sum() - recordSize)*(1000/updateInterval)).toLong()
-
-
-
-                        updateTaskProgress(
-                            taskID = downloadTask.taskInformation.taskID,
-                            chunkProgressList = currentChunkProgress,
-                            currentSpeed = speed
-                        )
-
-                        Log.d("updateTimer","speed: $speed, recordSize:$recordSize chunkProgressList:$currentChunkProgress")
-
-
-                        downloadingTaskFlow.value.map {
-
-                            if(it.taskInformation.taskID == downloadTask.taskInformation.taskID){
-                                println("currentTask: ${it.taskInformation.taskName} : ${it.chunkProgress}")
-
-                                if(it.chunkProgress.all { it == chunkFinished }){
-                                    updateTaskStatus(
-                                        downloadTask.taskInformation.taskID,
-                                        TaskStatus.Finished
-                                    )
-
-                                    removeTask(downloadTask.taskInformation.taskID)
-
-                                    Log.d("updateTimer","${downloadTask.taskInformation.taskName} finished")
-                                    updateTimer.cancel()
-
-                                }
-                            }
-
-                        }
-
-
-                    }
-                }
-
-                updateTimer.schedule(updateTask, 500, updateInterval.toLong())
 
                 val chunkJobs = chunks.mapIndexed { chunkIndex,(start, end) ->
                     launch {
@@ -254,44 +148,21 @@ object MultiThreadDownloadManager: ViewModel() {
                         downloadChunk(
                             context = context,
                             downloadUrl = downloadTask.taskInformation.downloadUrl,
-                            destination = downloadTask.taskInformation.storagePath,
+                            destination = Uri.parse(downloadTask.taskInformation.storagePath),
 //                            taskID = downloadTask.taskInformation.taskID,
                             rangeStart = start, rangeEnd = end, chunkIndex = chunkIndex,
-                            activeState = activeState,
+//                            activeState = activeState,
+                            taskActiveState = currentTaskStatusFlow,
                             downloadCallback = { current,total ->
 
                                 //taskProgress update Area
                                 currentChunkProgress[chunkIndex] = current.toInt()
 
-                                val currentTaskStatus: TaskStatus? = downloadingTaskFlow.value.find {
-                                    it.taskInformation.taskID == downloadTask.taskInformation.taskID
-                                }?.taskStatus
-
-
-                                val emitScope = CoroutineScope(Dispatchers.Main)
-
-                                if(TaskStatus.Paused == currentTaskStatus){
-
-                                    if(activeState.value == true){
-                                        
-                                        emitScope.launch{ activeState.emit(false) }
-                                        Log.d("taskStatus","activeState pause is emitted")
-                                    }
-
-                                    //range信息保存逻辑? 干脆放到 DataStorage 好了
-
-                                }
-
-                                else{
-                                    updateTaskStatus(downloadTask.taskInformation.taskID,TaskStatus.Activating)
-                                    emitScope.launch{ activeState.emit(true) }
-                                }
-
                                 var recordSize = downloadingTaskFlow.value.find {
                                     it.taskInformation.taskID == downloadTask.taskInformation.taskID
                                 }?.chunkProgress?.sum() ?: 0
 
-                                val speed = ((currentChunkProgress.sum() - recordSize)*(1000/updateInterval)).toLong()
+                                val speed = ((currentChunkProgress.sum() - recordSize)).toLong()
 
                                 updateTaskProgress(
                                     taskID = downloadTask.taskInformation.taskID,
@@ -315,7 +186,7 @@ object MultiThreadDownloadManager: ViewModel() {
                                             TaskStatus.Finished
                                         )
 
-                                        removeTask(downloadTask.taskInformation.taskID)
+                                        removeTask(context = context,taskID = downloadTask.taskInformation.taskID)
                                     }
 
 
@@ -338,7 +209,7 @@ object MultiThreadDownloadManager: ViewModel() {
             catch (e: Exception) {
                 println("Download failed: ${URL(downloadTask.taskInformation.downloadUrl)}, error: ${e.toString()}")
                 updateTaskStatus(downloadTask.taskInformation.taskID,TaskStatus.Stopped)
-                updateTimer.cancel()
+
             }
 
         }
@@ -364,33 +235,20 @@ object MultiThreadDownloadManager: ViewModel() {
         }
     }
 
-
-    private fun <T> StateFlow<T>.derive(prop: (T) -> Boolean): StateFlow<Boolean> {
-        return map(prop).distinctUntilChanged()
-            .stateIn(
-                scope = CoroutineScope(Dispatchers.Unconfined),
-                started = SharingStarted.WhileSubscribed(),
-                initialValue = prop(value)
-            )
-    }
-
     private inline fun updateTaskInformation(
         taskID: String,
         crossinline propTransform: (DownloadTask) -> DownloadTask
-    ){
-        downloadingTaskState.value = downloadingTaskFlow.value.map { task ->
-            if (task.taskInformation.taskID == taskID) {
-                propTransform(task)
+    ) = downloadingTaskState.value.map{ task ->
 
-            }
+        if(task.taskInformation.taskID == taskID){
+            propTransform(task)
+        }
 
-            else {
-                task
-            }
+        else{
+            task
         }
 
     }
-
 
 
     private fun updateTaskProgress(
@@ -424,26 +282,78 @@ object MultiThreadDownloadManager: ViewModel() {
 
     }
 
-    fun removeTask(taskID: String?){
+    fun removeTask(
+        context: Context,
+        taskID: String?,
+        isFinished: Boolean = false,
+    ){
 
         var selectedTask: DownloadTask? = null
-        selectedTask = downloadingTaskFlow.value.find { task -> task.taskInformation.taskID == taskID }
+
+        if(isFinished){
+            selectedTask = downloadingTaskFlow.value.find { task -> task.taskInformation.taskID == taskID }
+        }
+
+        else{
+            selectedTask = finishedTaskFlow.value.find { task -> task.taskInformation.taskID == taskID }
+        }
+
+        Log.d("taskInfo","try remove ${selectedTask?.taskInformation?.taskID}")
+
 
         selectedTask?.let {
 
-            //需等待 Stop/Pause/Finish 流程 才可移除
+            if(isFinished){
+                finishedTaskState.value =
+                    finishedTaskState.value - selectedTask
+
+                scope.launch{
+                    MyDataStore.removeTask(context = context,taskID = taskID)
+                }
 
 
-            if(selectedTask.taskStatus != TaskStatus.Activating){
-                downloadingTaskState.value =
-                    downloadingTaskState.value - selectedTask
+            }
 
-                if(selectedTask.taskStatus == TaskStatus.Finished){
-                    finishedTaskState.value = finishedTaskState.value + selectedTask
+            else{
 
+                if(selectedTask.taskStatus != TaskStatus.Activating){
+                    downloadingTaskState.value =
+                        downloadingTaskState.value - selectedTask
+                    Log.d("taskInfo","download UI delete")
+
+                    if(selectedTask.taskStatus == TaskStatus.Finished){
+                        finishedTaskState.value = finishedTaskState.value + selectedTask
+                    }
+
+                    else{
+                        scope.launch{
+                            MyDataStore.removeTask(context = context,taskID = taskID)
+                            Log.d("taskInfo","download storage delete")
+                        }
+                    }
+
+                }
+
+                else{
+                    updateTaskStatus(selectedTask.taskInformation.taskID, TaskStatus.Paused)
                 }
             }
 
+
+
+            //需等待 非Active 流程 才可移除
+
+
+
+        }
+    }
+
+    fun removeAllTasks(context: Context){
+        downloadingTaskState.value = emptyList()
+
+        scope.launch{
+            MyDataStore.removeAllTasks(context = context)
+            Log.d("taskInfo","remove All Downloading tasks")
         }
     }
 
@@ -499,7 +409,8 @@ object MultiThreadDownloadManager: ViewModel() {
         downloadUrl: String,
         destination: Uri = Uri.parse(""),
         rangeStart: Long = 0L, rangeEnd: Long = 1L, chunkIndex: Int = 0,
-        activeState: MutableStateFlow<Boolean> = MutableStateFlow(true),
+//        activeState: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        taskActiveState: StateFlow<TaskStatus?>? = null,
         downloadCallback: ProgressCallback = { current,total -> },
 
     ): Long {
@@ -533,17 +444,18 @@ object MultiThreadDownloadManager: ViewModel() {
                                     fos.write(buffer, 0, currentBytesRead) // 自动更新文件指针
                                     totalBytesRead += currentBytesRead
 
-                                    if(!activeState.value){
-                                        Log.d("taskStatus","$chunkIndex triggered hang up status:${activeState.value}")
+                                    if(TaskStatus.Paused == taskActiveState?.value){
+                                        Log.d("taskStatus","$chunkIndex triggered hang up")
 
 
-                                        activeState.first { it } //hangup : State wait for the update
+                                        taskActiveState.first { TaskStatus.Activating == it  } //hangup : State wait for the update
 
-                                        Log.d("taskStatus","$chunkIndex triggered resume status:${activeState.value}")
+                                        Log.d("taskStatus","$chunkIndex triggered resume")
                                     }
 
                                     // 模拟延迟和回调
                                     delay((Random.nextFloat()*1500).toLong())
+                                    Log.d("taskStatus","$chunkIndex ${taskActiveState?.value}") //Pending
 
                                     downloadCallback(totalBytesRead, totalLength)
                                 }

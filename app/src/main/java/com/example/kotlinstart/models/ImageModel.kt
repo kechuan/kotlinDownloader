@@ -45,7 +45,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.parcelize.Parcelize
 import retrofit2.Retrofit
 import java.io.File
 import kotlin.collections.get
@@ -56,11 +55,11 @@ enum class ImageViewType{
     Star()
 }
 
-@Parcelize
+
 data class ImageViewData(
     val imageViewType: String,
     val initialImageIndex: Int
-) : Parcelable
+)
 
 data class ImageDataState(
     var currentImageData: Pair<String, String>? = null

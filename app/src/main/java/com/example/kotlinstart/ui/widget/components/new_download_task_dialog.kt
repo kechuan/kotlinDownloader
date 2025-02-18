@@ -32,6 +32,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.documentfile.provider.DocumentFile
+import com.example.kotlinstart.internal.DownloadTask
+import com.example.kotlinstart.internal.TaskInformation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -223,7 +225,7 @@ fun AddTaskDialog(
                                                     taskName = fileName,
                                                     taskID = url.hashCode().toString(),
                                                     downloadUrl = url,
-                                                    storagePath = targetFile!!,
+                                                    storagePath = targetFile!!.toString(),
                                                 ),
                                                 speedLimit = (speedLimitRange*(50*BinaryType.MB.size)).toLong(),
                                                 threadCount = threadCount,

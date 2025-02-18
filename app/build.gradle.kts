@@ -1,8 +1,11 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
-    id("kotlin-parcelize")
+    alias(libs.plugins.relay)
+
+//    id("kotlin-parcelize")
 //    alias(libs.plugins.kotlin.parcelize)
 
     //alias(libs.plugins.kotlin.android.extensions)
@@ -90,6 +93,8 @@ dependencies {
     implementation(libs.okHttp)
     implementation(libs.navigation.compose)
     implementation(libs.data.store)
+    implementation(libs.kotlinx.serialization.json)
+
 
     implementation(libs.koin.core)
     implementation(libs.koin.android)

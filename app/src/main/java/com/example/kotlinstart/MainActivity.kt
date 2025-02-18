@@ -33,6 +33,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat.requestPermissions
 import androidx.core.content.ContextCompat
+
+
 
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -65,6 +68,8 @@ import com.example.kotlinstart.ui.widget.catalogs.downloadPage.DownloadPage
 import com.example.kotlinstart.ui.widget.catalogs.imagePage.ImagePage
 import com.example.kotlinstart.ui.widget.catalogs.loginPage.LoginPage
 import com.example.kotlinstart.ui.widget.catalogs.testPage.TestPage
+
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -102,6 +107,10 @@ class MainActivity : ComponentActivity() {
             BIND_AUTO_CREATE
         )
 
+//        ViewScope
+
+
+
 
         val processBinderConnection = object : ServiceConnection {
 
@@ -120,28 +129,25 @@ class MainActivity : ComponentActivity() {
         )
 
 
-
-//        val testFile = File("${Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS).path}/testFile")
-//
-//        testFile.createNewFile()
-
-//        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
-//            addCategory(Intent.CATEGORY_OPENABLE) // 指定只显示图片
-//            type = "image/*"
-//        }
-//
-//        startActivityForResult(intent,2)
+//        val scope = CoroutineScope(Dispatchers.Main)
 
 
 
         setContent {
 
-
                 val localContext = LocalContext.current
-
-                StorageModel.initModel(LocalContext.current)
-
                 val navController = rememberNavController()
+                val scope = rememberCoroutineScope()
+
+                StorageModel.initModel(localContext)
+
+                scope.launch{
+                    MultiThreadDownloadManager.init(localContext)
+                }
+
+
+
+
 
                 CompositionLocalProvider(
                     MainViewModel.localNavController provides navController

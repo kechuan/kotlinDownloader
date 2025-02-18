@@ -32,9 +32,13 @@ import androidx.compose.runtime.*
 
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.example.kotlinstart.downloadsettingpagecontent.DownloadSettingPageContent
 
 
 import kotlinx.coroutines.launch
+
+
+
 
 @SuppressLint("UnrememberedMutableState", "SuspiciousIndentation")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,49 +48,16 @@ fun DownloadSettingPage(){
     val parentNavController = MainViewModel.localNavController.current
     val downloadNavController = DownloadViewModel.localDownloadNavController.current
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-
-            FlutterDesignWidget.AppBar(
-                onClick = { downloadNavController.popBackStack() },
-                title = { Text("DownloadSettingPage") },
-            )
-        },
-    ) {
-
-        Box(
-            modifier = Modifier.padding(it)
-        ){
-
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.TopStart
-            ){
-                LazyColumn(
-                    verticalArrangement = Arrangement.Top
-                ){
-
-                    item{
-                        SettingTile(
-                            settingName = "默认存储目录",
-                            trailingContent = {Text(text = "test")},
-                            onPressed = {},
-                            onPressedText = "更改"
-                        )
-                    }
+    Scaffold { paddingValues ->
+        Box(modifier = Modifier.padding(paddingValues)){
+            DownloadSettingPageContent()
 
 
-
-                }
-
-
-            }
         }
 
-
-
     }
+
+
 
 
 }
