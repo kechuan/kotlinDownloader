@@ -38,11 +38,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
@@ -73,6 +73,7 @@ dependencies {
 
 
     implementation(libs.androidx.core.ktx)
+//    implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
@@ -84,6 +85,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.litert.metadata)
     implementation(libs.androidx.work)
+    implementation(libs.material.icons.extended)
 
     implementation(libs.retrofit)
     implementation(libs.gson)
@@ -94,7 +96,7 @@ dependencies {
     implementation(libs.navigation.compose)
     implementation(libs.data.store)
     implementation(libs.kotlinx.serialization.json)
-
+    implementation(libs.kotlinx.coroutine.core)
 
     implementation(libs.koin.core)
     implementation(libs.koin.android)

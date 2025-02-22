@@ -8,19 +8,33 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material.icons.twotone.StopCircle
 
 import androidx.compose.material3.*
 
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import com.example.kotlinstart.internal.MultiThreadDownloadManager
+import com.example.kotlinstart.internal.MultiThreadDownloadManager.downloadingTaskFlow
 import com.example.kotlinstart.internal.TaskStatus
+import com.example.kotlinstart.internal.TaskStatus.*
+import com.example.kotlinstart.internal.convertBinaryType
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlin.collections.find
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -31,18 +45,38 @@ fun FileTile(
     progress: Float,
     currentSpeed: Long,
     totalSize: Long,
-    onClick: ()-> Unit,
-    onLongClick: ()-> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ){
 
-    val currentStatus = MultiThreadDownloadManager.downloadingTaskFlow.value.find {
-        it.taskInformation.taskID == taskID &&
-                it.taskStatus == TaskStatus.Activating || it.taskStatus == TaskStatus.Paused
-    }?.taskStatus
+    val localContext = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val currentTaskStatusFlow: StateFlow<TaskStatus?> = downloadingTaskFlow
+        .map{
+            it.firstOrNull{ it.taskInformation.taskID == taskID }?.taskStatus
+        }
+        .stateIn(
+            scope = coroutineScope,
+            started = SharingStarted.Eagerly, //当下载开始时 (downloadChunk回调) 开始监听
+            initialValue = downloadingTaskFlow.value.find { it.taskInformation.taskID == taskID }?.taskStatus
+        )
+
+    val taskStatusState by currentTaskStatusFlow.collectAsState()
+
+    var iconStatus = Icons.Default.History
+
+    when(taskStatusState){
+        Pending -> iconStatus = Icons.Default.History
+        Activating -> iconStatus = Icons.Default.Pause
+        Paused -> iconStatus = Icons.Default.PlayArrow
+        Finished -> iconStatus = Icons.Default.Done
+        Stopped -> iconStatus = Icons.Default.StopCircle
+        null -> {}
+    }
 
     ListItem(
         modifier = Modifier.combinedClickable(
-
             onClick = onClick,
             onLongClick = onLongClick
         ),
@@ -51,22 +85,46 @@ fun FileTile(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .clickable(
-                        enabled = true,
                         onClick = {
-                            if( TaskStatus.Paused == currentStatus ){
-                                MultiThreadDownloadManager.updateTaskStatus(taskID, taskStatus = TaskStatus.Activating)
+                            if( Paused == taskStatusState ){
+                                coroutineScope.launch {
+                                    MultiThreadDownloadManager.updateTaskStatus(
+                                        context = localContext,
+                                        taskID = taskID,
+                                        taskStatus = Activating
+                                    )
+
+                                    MultiThreadDownloadManager.addTask(
+                                        context = localContext,
+                                        downloadTask = downloadingTaskFlow.value.find{ it.taskInformation.taskID == taskID },
+                                        isResume = true,
+                                    )
+
+
+                                }
+
                             }
 
                             else{
-                                MultiThreadDownloadManager.updateTaskStatus(taskID, taskStatus = TaskStatus.Paused)
+                                if( Finished != taskStatusState) {
+                                    coroutineScope.launch {
+                                        MultiThreadDownloadManager.updateTaskStatus(
+                                            context = localContext,
+                                            taskID = taskID,
+                                            taskStatus = Paused
+                                        )
+                                    }
+
+                                }
+
                             }
 
                         }
                     )
             ){
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Pause"
+                    imageVector = iconStatus,
+                    contentDescription = "status toggle"
                 )
             }
         },
@@ -104,7 +162,7 @@ fun FileTile(
                                 } 
                                 
                                 else {
-                                    "${convertBinaryType((progress*totalSize).toLong())}/${convertBinaryType(totalSize)}"
+                                    "${convertBinaryType((progress * totalSize).toLong())}/${convertBinaryType(totalSize)}"
                                 }
                             }")
 

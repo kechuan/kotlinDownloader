@@ -6,6 +6,7 @@ import androidx.datastore.core.Serializer
 import androidx.datastore.dataStore
 
 import android.content.Context
+import android.util.Log
 
 
 import com.example.kotlinstart.internal.DownloadTask
@@ -64,6 +65,30 @@ object MyDataStore{
         }
     }
 
+    suspend fun updateTask(
+        context: Context,
+        taskID: String,
+        newTaskInformation:DownloadTask,
+    ){
+        context.tasksData.updateData { current ->
+
+            DownloadTasks(
+                current.tasks.map {
+                    if(it.taskInformation.taskID == taskID){
+                        newTaskInformation
+                    }
+
+                    else{
+                        it
+                    }
+                }
+            )
+
+
+
+        }
+    }
+
     suspend fun removeTask(context: Context, taskID:String?){
         taskID?.let{ taskID ->
             context.tasksData.updateData { current ->
@@ -76,22 +101,22 @@ object MyDataStore{
 
         if(!isFinished){
             context.tasksData.updateData { current ->
-                DownloadTasks(current.tasks.filter { it.taskStatus != TaskStatus.Finished }) //移除所有非Finished
+                DownloadTasks(current.tasks.filter { it.taskStatus == TaskStatus.Finished }) //移除所有非Finished任务
             }
         }
 
         else{
             context.tasksData.updateData { current ->
-                DownloadTasks(current.tasks.filter { it.taskStatus == TaskStatus.Finished }) //移除所有Finished任务
+                DownloadTasks(current.tasks.filter { it.taskStatus != TaskStatus.Finished }) //移除所有Finished任务
             }
         }
+
+//        Log.d("DataStore","${context.tasksData.data.map { it.tasks }}")
 
 
     }
 
-
-
-    suspend fun getAllTasks(context: Context) = context.tasksData.data.map { it.tasks }
+    fun getAllTasks(context: Context) = context.tasksData.data.map { it.tasks }
 
 
 }

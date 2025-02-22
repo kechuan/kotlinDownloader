@@ -4,7 +4,7 @@ import AddTaskDialog
 
 import FileTile
 import FileTileBottomSheet
-import MultiThreadDownloadManager.preallocateSpace
+import com.example.kotlinstart.internal.MultiThreadDownloadManager.preallocateSpace
 import com.example.kotlinstart.internal.DownloadTask
 import com.example.kotlinstart.internal.TaskInformation
 import android.content.Context
@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Settings
 
@@ -42,11 +43,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.documentfile.provider.DocumentFile
+import com.example.kotlinstart.internal.MultiThreadDownloadManager
 import com.example.kotlinstart.ui.widget.catalogs.DownloadPageTabs
 //import com.example.kotlinstart.MultiThreadDownloadManager
 import com.example.kotlinstart.ui.widget.catalogs.DownloadRoutes
 
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 
 import kotlinx.coroutines.launch
 import java.io.FileOutputStream
@@ -159,6 +162,24 @@ fun DownloadTaskPage(){
                                 }
                             )
 
+                            HorizontalDivider()
+
+                            DropdownMenuItem(
+                                text = { Text("清除任务") },
+                                onClick = {
+                                    toolbarExpandedStatus = false
+                                    MultiThreadDownloadManager.removeAllTasks(localContext)
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Outlined.Delete,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+
+
+
 
                         }
                     }
@@ -176,10 +197,10 @@ fun DownloadTaskPage(){
             modifier = Modifier.padding(it)
         ) {
 
-            val downloadingTasks by DownloadViewModel.downloadingTasksFlow.collectAsState()
-            val finishedTasks by DownloadViewModel.finishedTasksFlow.collectAsState()
-
+            //相当于 PageController的。。函数切换
             val pageIndexState: MutableIntState = remember { mutableIntStateOf(DownloadPageTabs.DownloadingTask.index) }
+
+            //而这个是 PageController的State 用于暴露给UI的 调整 pageIndexState 方式
             val pageState = rememberPagerState(pageCount = { DownloadPageTabs.entries.size })
 
             LaunchedEffect(pageState) {
@@ -190,7 +211,8 @@ fun DownloadTaskPage(){
                     }
             }
 
-
+            val downloadingTasks by DownloadViewModel.downloadingTasksFlow.collectAsState()
+            val finishedTasks by DownloadViewModel.finishedTasksFlow.collectAsState()
 
             Column {
 
@@ -231,10 +253,12 @@ fun DownloadTaskPage(){
                                         taskList = finishedTasks
                                     }
 
-//                                    Log.d("taskUI","Item ${taskList[it].taskInformation.taskName} update: ${taskList[it].chunkProgress.sum()}/${taskList[it].fileSize} ${(taskList[it].chunkProgress.sum()/taskList[it].fileSize)*100.toFloat()}%")
+                                    val progress = if(taskList[it].fileSize == 0L) 0F else{
+                                        (taskList[it].chunkProgress.sum()/taskList[it].fileSize.toFloat())
+                                    }
 
-                                    val progress = taskList[it].chunkProgress.sum()/taskList[it].fileSize.toFloat()
 
+                                    Log.d("taskUI","Item ${taskList[it].taskInformation.taskName} update: ${taskList[it].chunkProgress.sum()}/${taskList[it].fileSize} ${progress * 100}%")
 
                                     FileTile(
                                         taskID = taskList[it].taskInformation.taskID,
@@ -337,34 +361,31 @@ fun TaskFAB(
 
             storagePath = DocumentFile.fromTreeUri(localContext, it)?.uri
 
+
+            val downloadUrl = "https://github.com/wgh136/pixes/releases/download/v1.1.1/pixes-1.1.1-arm64-v8a.apk"
+            val name = "pixes-1.1.1-arm64-v8a.apk"
+
             val targetFile = DocumentsContract.createDocument(
                 localContext.contentResolver,
                 storagePath!!,
                 "",
-                "Pili-arm64-v8a-1.0.26.1214.apk"
+                name
             )
-
-            val downloadUrl = "https://github.com/guozhigq/pilipala/releases/download/v1.0.26.1214/Pili-arm64-v8a-1.0.26.1214.apk"
-
 
             MultiThreadDownloadManager.addTask(
                 context = localContext,
                 DownloadTask(
                     taskInformation = TaskInformation(
-                        taskName = "Pili-arm64-v8a-1.0.26.1214.apk",
+                        taskName = name,
                         taskID = downloadUrl.hashCode().toString(), //TODO 相同ID处理机制When..
                         downloadUrl = downloadUrl,
                         storagePath = targetFile!!.toString(),
                     ),
-
-//                    fileSize = 0L,
-                    fileSize = 15342905L,
-                    speedLimit = 0L,
-                    threadCount = 1,
                 ),
             )
 
             scope.launch{
+                Log.d("taskInfo","add task: taskName: $name, taskID:${downloadUrl.hashCode().toString()}")
                 MultiThreadDownloadManager.waitForAll()
             }
 
@@ -390,32 +411,7 @@ fun TaskFAB(
     FloatingActionButton(
         onClick = {
 
-//            if(deleteStatus){
-//                DownloadViewModel.removeTask("test")
-//            }
-//
-//            else{
-//                DownloadViewModel.addTask("test ${DownloadViewModel.downloadingTasksFlow.value.size}","storage/0/Download/test.txt")
-//            }
-
-
-
-
-            // 目标写入文件夹 DocumentTree
              directoryLauncher.launch(null)
-
-            // 需要迁移的文件 DocumentUri
-//            filePickerLauncher.launch(input = Array<String>(size = 1,init = {index -> "*/*"}))
-
-
-
-
-
-
-
-//            scope.launch{
-//                MultiThreadDownloadManager.waitForAll()
-//            }
 
 
         },
@@ -427,126 +423,4 @@ fun TaskFAB(
     }
 }
 
-fun createEmptyFile(
-    context: Context,
-    fileName: String,
-    storagePath: Uri,
-    size: Long,
-): Uri? {
 
-
-    return try {
-
-        val uri = DocumentsContract.createDocument(
-            context.contentResolver,
-            storagePath, // 之前通过 OpenDocumentTree 获得的目录 Uri
-            "application/octet-stream",
-            fileName
-        )
-
-        // 预分配空间（可选）
-        uri?.let {
-            preallocateSpace(context,it,size)
-        }
-
-        return uri
-
-    }
-
-    catch (e: Exception) {
-        println(e.toString())
-        return null
-    }
-}
-
-fun preallocateSpace(context: Context, uri: Uri, targetSize: Long) {
-    try {
-        context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
-            FileOutputStream(pfd.fileDescriptor).use { fos ->
-                // 移动到目标位置-1（因为写入1字节会自动扩展）
-                fos.channel.position(targetSize - 1).use {
-                    fos.write(0) // 写入单个空字节
-                }
-            }
-        }
-    } catch (e: IOException) {
-        Log.e("PreAlloc", "空间预分配失败：${e.message}")
-    }
-}
-
-//suspend fun writeSpace(
-//    context: Context,
-//    uri: Uri,
-//    chunkSize: Int = 2 * 1024 * 1024 // 2MB/chunk
-//) {
-//
-//    val contentResolver = context.contentResolver
-////    var currentPosition = 0L
-//
-//    // 获取文件总大小（示例用固定值）
-//    val chunkList = calculateChunks(fixedSize,chunkSize.toLong())
-//
-//    var bufferLength = 8192
-//
-//    val scope = CoroutineScope(Dispatchers.IO)
-//
-//
-//    val jobs = mutableListOf<Job>()
-//
-//    chunkList.map {
-//
-//        var rangeStart = it.first //start
-//
-//
-//        val job = scope.launch {
-//
-//            withContext(Dispatchers.IO) {
-//                val connection = URL(url).openConnection() as HttpURLConnection
-//                    connection.setRequestProperty("Range", "bytes=$start-$end")
-//
-//                    connection.inputStream.use { input ->
-//                }
-//
-//                contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
-//                    FileOutputStream(pfd.fileDescriptor).use { fos ->
-//                        fos.channel.use { channel ->
-//                            channel.position(rangeStart)
-//                            fos.write(bufferLength)
-//
-//                            println("${Thread.currentThread().name} [$rangeStart/${it.second}]")
-//
-//                            rangeStart += bufferLength
-//
-//                            if (it.second - rangeStart < bufferLength) {
-//                                bufferLength = (it.second - rangeStart).toInt()
-//                            }
-//                        }
-//                    }
-//                }
-//
-//            }
-//
-//
-//
-//            jobs.add(job)
-//
-//
-//        }
-//
-//
-//}
-//
-//    jobs.joinAll()
-//
-//}
-
-fun calculateChunks(fileSize: Long, chunkSize: Long): List<Pair<Long, Long>> {
-    val chunks = mutableListOf<Pair<Long, Long>>()
-    var start = 0L
-    while (start < fileSize) {
-        val end = (start + chunkSize - 1).coerceAtMost(fileSize - 1)
-        chunks.add(start to end)
-        start += chunkSize
-    }
-    return chunks
-}

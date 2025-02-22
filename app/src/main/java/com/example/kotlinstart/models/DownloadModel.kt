@@ -1,17 +1,9 @@
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.example.kotlinstart.internal.DownloadTask
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.example.kotlinstart.internal.MultiThreadDownloadManager
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import java.net.URL
-import kotlin.collections.mutableListOf
-
 
 
 object DownloadViewModel: ViewModel() {

@@ -32,12 +32,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.documentfile.provider.DocumentFile
+import com.example.kotlinstart.internal.BinaryType
 import com.example.kotlinstart.internal.DownloadTask
 import com.example.kotlinstart.internal.TaskInformation
+import com.example.kotlinstart.internal.convertBinaryType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.net.URL
 
 @Composable
@@ -151,7 +152,7 @@ fun AddTaskDialog(
                     // 限速设置
                     Column {
 
-                        Text("下载限速: ${if (speedLimitRange == 0F) "不限速" else "${convertBinaryType(value = (speedLimitRange*(50*BinaryType.MB.size)).toLong())}/s"}")
+                        Text("下载限速: ${if (speedLimitRange == 0F) "不限速" else "${convertBinaryType(value = (speedLimitRange * (50 * BinaryType.MB.size)).toLong())}/s"}")
                         Slider(
                             value = speedLimitRange,
                             onValueChange = { speedLimitRange = it },
@@ -227,7 +228,7 @@ fun AddTaskDialog(
                                                     downloadUrl = url,
                                                     storagePath = targetFile!!.toString(),
                                                 ),
-                                                speedLimit = (speedLimitRange*(50*BinaryType.MB.size)).toLong(),
+                                                speedLimit = (speedLimitRange*(50* BinaryType.MB.size)).toLong(),
                                                 threadCount = threadCount,
                                             ),
 

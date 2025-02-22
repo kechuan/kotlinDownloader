@@ -14,17 +14,13 @@ enum class TaskStatus{
 }
 
 @Serializable
-data class DownloadTaskMap(
-    val tasks: Map<String, DownloadTask> = emptyMap()
-)
-
-@Serializable
 @Immutable
 data class TaskInformation(
     val taskID: String = "taskID",
     val taskName: String = "taskName",
     val downloadUrl: String = "downloadUrl",
     val storagePath: String = "storagePath",
+    val chunkCount: Int = 1,
 ){
     companion object{
         val Default = TaskInformation()
@@ -38,8 +34,8 @@ data class DownloadTask(
     val chunkProgress: List<Int> = emptyList(), //重建以更新
     val fileSize: Long = 0,
     val currentSpeed: Long = 0,
-    var threadCount: Int = 1,
-    var speedLimit: Long = 0,
+    val threadCount: Int = 1,
+    val speedLimit: Long = 0,
 ){
     companion object{
         val Default = DownloadTask()

@@ -101,7 +101,7 @@ object ImageViewModel : ViewModel() {
         var title: String? = null
         var imageUrl: String? = null
 
-        val retrofitClient: Retrofit = HttpRequestClient.client
+        val retrofitClient: Retrofit = HttpRequestClient.pictureClient
         val imgRequest = retrofitClient.create(ImageApi::class.java)
 
         val response = async { imgRequest.getDefaultData().execute() } //可读性提升

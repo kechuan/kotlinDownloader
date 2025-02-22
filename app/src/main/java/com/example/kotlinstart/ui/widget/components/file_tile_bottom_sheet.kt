@@ -21,8 +21,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import com.example.kotlinstart.internal.BinaryType
 
 import com.example.kotlinstart.internal.DownloadTask
+import com.example.kotlinstart.internal.MultiThreadDownloadManager
+import com.example.kotlinstart.internal.convertBinaryType
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,6 +39,7 @@ fun FileTileBottomSheet(
 
     val localContext = LocalContext.current
 
+    val coroutineScope = rememberCoroutineScope()
 
 
     //Info
@@ -44,7 +50,7 @@ fun FileTileBottomSheet(
     //(speedLimitRange*(50*BinaryType.MB.size)).toLong()
 
     //settingPanel
-    var speedLimitRange by remember { mutableFloatStateOf((selectingTask.speedLimit.toFloat())/(50*BinaryType.MB.size)) } // 0 表示不限速
+    var speedLimitRange by remember { mutableFloatStateOf((selectingTask.speedLimit.toFloat())/(50* BinaryType.MB.size)) } // 0 表示不限速
     var threadCount by remember { mutableIntStateOf(selectingTask.threadCount) }
 
 
@@ -116,10 +122,15 @@ fun FileTileBottomSheet(
                         modifier = Modifier.clickable(
 
                             onClick = {
-                                MultiThreadDownloadManager.removeTask(
-                                    context = localContext,
-                                    taskID = selectingTask.taskInformation.taskID,
-                                )
+
+                                coroutineScope.launch {
+                                    MultiThreadDownloadManager.removeTask(
+                                        context = localContext,
+                                        taskID = selectingTask.taskInformation.taskID,
+                                    )
+                                }
+
+
                             }
                         ),
 
@@ -151,7 +162,7 @@ fun FileTileBottomSheet(
                 // 限速设置
                 Column {
 
-                    Text("下载限速: ${if (speedLimitRange == 0F) "不限速" else "${convertBinaryType(value = (speedLimitRange*(50*BinaryType.MB.size)).toLong())}/s"}")
+                    Text("下载限速: ${if (speedLimitRange == 0F) "不限速" else "${convertBinaryType(value = (speedLimitRange * (50 * BinaryType.MB.size)).toLong())}/s"}")
                     Slider(
                         value = speedLimitRange,
                         onValueChange = { speedLimitRange = it },

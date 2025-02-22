@@ -275,10 +275,10 @@ enum class BinaryType(
 }
 
 fun convertBinaryType(value: Long): String{
-    var resultType = BinaryType.B.binaryType
+    var resultType = com.example.kotlinstart.internal.BinaryType.B.binaryType
     var resultValue = value.toFloat()
 
-    BinaryType.entries.any {
+    com.example.kotlinstart.internal.BinaryType.entries.any {
         //1000*1024 => 1000 KB => 0.97MB
 
         if(resultValue<1024) {
@@ -286,7 +286,7 @@ fun convertBinaryType(value: Long): String{
             resultType = it.binaryType
 
             if(resultValue>=1000){
-                resultValue /= BinaryType.KB.size
+                resultValue /= com.example.kotlinstart.internal.BinaryType.KB.size
                 return@any false
             }
 
@@ -297,7 +297,7 @@ fun convertBinaryType(value: Long): String{
         }
 
         else{
-            resultValue /= BinaryType.KB.size
+            resultValue /= com.example.kotlinstart.internal.BinaryType.KB.size
         }
 
         return@any false

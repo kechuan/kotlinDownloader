@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.MediaStore
+
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -44,6 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+
+
 import androidx.core.app.ActivityCompat.requestPermissions
 import androidx.core.content.ContextCompat
 
@@ -51,11 +55,11 @@ import androidx.core.content.ContextCompat
 
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import com.example.kotlinstart.internal.CountBinder
 import com.example.kotlinstart.internal.CountBinderService
+import com.example.kotlinstart.internal.MultiThreadDownloadManager
 import com.example.kotlinstart.internal.MyChannel
 import com.example.kotlinstart.internal.ProgressBinderService
 
@@ -81,7 +85,7 @@ class MainActivity : ComponentActivity() {
 
         MyChannel.init(context = applicationContext)
 
-        val broadcastIntent = Intent("ACTION_START");
+//        val broadcastIntent = Intent("ACTION_START");
 
         val countBinderConnection = object : ServiceConnection {
 
@@ -144,9 +148,6 @@ class MainActivity : ComponentActivity() {
                 scope.launch{
                     MultiThreadDownloadManager.init(localContext)
                 }
-
-
-
 
 
                 CompositionLocalProvider(
