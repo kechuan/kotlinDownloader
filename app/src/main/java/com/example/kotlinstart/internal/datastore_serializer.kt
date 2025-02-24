@@ -67,22 +67,26 @@ object MyDataStore{
 
     suspend fun updateTask(
         context: Context,
-        taskID: String,
-        newTaskInformation:DownloadTask,
+        taskID: String?,
+        newTaskInformation:DownloadTask?,
     ){
-        context.tasksData.updateData { current ->
 
-            DownloadTasks(
-                current.tasks.map {
-                    if(it.taskInformation.taskID == taskID){
-                        newTaskInformation
-                    }
+        newTaskInformation?.let{
+            context.tasksData.updateData { current ->
 
-                    else{
-                        it
+                DownloadTasks(
+                    current.tasks.map {
+                        if(it.taskInformation.taskID == taskID){
+                            newTaskInformation
+                        }
+
+                        else{
+                            it
+                        }
                     }
-                }
-            )
+                )
+        }
+
 
 
 
@@ -92,29 +96,26 @@ object MyDataStore{
     suspend fun removeTask(context: Context, taskID:String?){
         taskID?.let{ taskID ->
             context.tasksData.updateData { current ->
-                DownloadTasks(current.tasks.filter { it.taskInformation.taskID != taskID }) //透过 fliter 实现的 删除
+                DownloadTasks(current.tasks.filter { it.taskInformation.taskID != taskID }) //透过 filter 实现的 删除
             }
         }
     }
 
-    suspend fun removeAllTasks(context: Context,isFinished: Boolean = false){
-
-        if(!isFinished){
-            context.tasksData.updateData { current ->
-                DownloadTasks(current.tasks.filter { it.taskStatus == TaskStatus.Finished }) //移除所有非Finished任务
-            }
+    suspend fun removeTasks(
+        context: Context,
+        taskIDList: List<String>
+    ){
+        context.tasksData.updateData { current ->
+            DownloadTasks(current.tasks.filter { storageTask ->
+                !taskIDList.any { it == storageTask.taskInformation.taskID }
+            }) //任一符合 taskIDList 的数据则被筛去
         }
-
-        else{
-            context.tasksData.updateData { current ->
-                DownloadTasks(current.tasks.filter { it.taskStatus != TaskStatus.Finished }) //移除所有Finished任务
-            }
-        }
-
-//        Log.d("DataStore","${context.tasksData.data.map { it.tasks }}")
-
-
     }
+
+    suspend fun removeAllTasks(context: Context){
+        context.tasksData.updateData { current ->  DownloadTasks() }
+    }
+
 
     fun getAllTasks(context: Context) = context.tasksData.data.map { it.tasks }
 

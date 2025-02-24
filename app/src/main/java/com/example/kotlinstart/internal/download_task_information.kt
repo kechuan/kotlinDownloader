@@ -1,6 +1,5 @@
 package com.example.kotlinstart.internal
 
-import android.net.Uri
 import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
@@ -20,7 +19,7 @@ data class TaskInformation(
     val taskName: String = "taskName",
     val downloadUrl: String = "downloadUrl",
     val storagePath: String = "storagePath",
-    val chunkCount: Int = 1,
+    val chunksRangeList: List<Pair<Long, Long>> = emptyList(),
 ){
     companion object{
         val Default = TaskInformation()
@@ -28,6 +27,7 @@ data class TaskInformation(
 }
 
 @Serializable
+@Immutable
 data class DownloadTask(
     val taskInformation: TaskInformation = TaskInformation.Default,
     val taskStatus: TaskStatus = TaskStatus.Pending,
@@ -36,6 +36,7 @@ data class DownloadTask(
     val currentSpeed: Long = 0,
     val threadCount: Int = 1,
     val speedLimit: Long = 0,
+//    val failureReason: String? = null
 ){
     companion object{
         val Default = DownloadTask()

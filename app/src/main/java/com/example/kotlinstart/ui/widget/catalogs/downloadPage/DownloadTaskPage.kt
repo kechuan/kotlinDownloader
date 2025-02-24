@@ -243,22 +243,35 @@ fun DownloadTaskPage(){
                                     else { finishedTasks.size }
                                 ) {
 
-                                    lateinit var taskList: List<DownloadTask>
+                                    var taskList: List<DownloadTask> =
+                                        if(pageState.currentPage == DownloadPageTabs.DownloadingTask.index){
+                                            downloadingTasks
+                                        }
 
-                                    if(pageState.currentPage == DownloadPageTabs.DownloadingTask.index){
-                                        taskList = downloadingTasks
-                                    }
+                                        else{
+                                            finishedTasks
+                                        }
 
-                                    else{
-                                        taskList = finishedTasks
-                                    }
+                                    var totalByteDownloaded = 0L
+                                    val chunksRangeList = taskList[it].taskInformation.chunksRangeList
 
                                     val progress = if(taskList[it].fileSize == 0L) 0F else{
-                                        (taskList[it].chunkProgress.sum()/taskList[it].fileSize.toFloat())
+
+                                        taskList[it].chunkProgress.mapIndexed { chunkIndex,currentChunk ->
+                                            if(currentChunk == -1){
+                                                totalByteDownloaded += (chunksRangeList[chunkIndex].second - chunksRangeList[chunkIndex].first)+1
+                                            }
+
+                                            else{
+                                                totalByteDownloaded += currentChunk
+                                            }
+                                        }
+
+                                        totalByteDownloaded/taskList[it].fileSize.toFloat()
+
                                     }
 
-
-                                    Log.d("taskUI","Item ${taskList[it].taskInformation.taskName} update: ${taskList[it].chunkProgress.sum()}/${taskList[it].fileSize} ${progress * 100}%")
+                                    Log.d("taskUI","Item ${taskList[it].taskInformation.taskName} update: ${totalByteDownloaded}/${taskList[it].fileSize} ${progress * 100}%")
 
                                     FileTile(
                                         taskID = taskList[it].taskInformation.taskID,
@@ -267,13 +280,10 @@ fun DownloadTaskPage(){
                                         currentSpeed = taskList[it].currentSpeed,
                                         totalSize = taskList[it].fileSize,
                                         onClick = {
-//                                            fileTileBottomSheetStatus = true
                                             selectingTile = taskList[it]
                                         },
                                         onLongClick = {}
                                     )
-
-
 
                                 }
                             }
@@ -362,8 +372,8 @@ fun TaskFAB(
             storagePath = DocumentFile.fromTreeUri(localContext, it)?.uri
 
 
-            val downloadUrl = "https://github.com/wgh136/pixes/releases/download/v1.1.1/pixes-1.1.1-arm64-v8a.apk"
-            val name = "pixes-1.1.1-arm64-v8a.apk"
+            val downloadUrl = "https://github.com/kechuan/banguLite/releases/download/0.5.6%2B1/banguLite-0.5.6.1-armeabi-v7a.apk"
+            val name = "banguLite-0.5.6.1-armeabi-v7a.apk"
 
             val targetFile = DocumentsContract.createDocument(
                 localContext.contentResolver,

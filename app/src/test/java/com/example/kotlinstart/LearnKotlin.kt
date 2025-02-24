@@ -1,3 +1,5 @@
+import com.example.kotlinstart.internal.DownloadTask
+import com.example.kotlinstart.internal.TaskInformation
 import com.example.kotlinstart.internal.TaskStatus
 import com.example.kotlinstart.internal.emptyLength
 import kotlinx.coroutines.*
@@ -75,30 +77,32 @@ suspend fun delayDuration(ms:Long): Long {
 
 
 fun main(){
-    val runStart :Boolean = true
+    val runStart :Boolean = false
     println("begin of main")
 
     val scope = CoroutineScope(Dispatchers.IO)
 
-    val example = "content-range: bytes 0-1/144534"
-    val contentLength = example.split("/")?.last()?.toLongOrNull() ?: emptyLength
+    val taskInformation = TaskInformation.Default
 
-    println("contentLength:$contentLength")
+    val newTaskInformation =  taskInformation.copy(
+        taskID = "asd"
+    )
 
-   runBlocking {
-       launch {
-           val waitTaskA = async { delayDuration(3000) }.await()  //并行
-           println("A-middle")
-           val waitTaskB = async { delayDuration(1000) }  //并行
-           println("B-middle")
-       }
 
-       launch {
-           val waitTaskC = async { delayDuration(1000) }  //并行
-           println("C-middle")
-
-       }
-   }
+//   runBlocking {
+//       launch {
+//           val waitTaskA = async { delayDuration(3000) }.await()  //并行
+//           println("A-middle")
+//           val waitTaskB = async { delayDuration(1000) }  //并行
+//           println("B-middle")
+//       }
+//
+//       launch {
+//           val waitTaskC = async { delayDuration(1000) }  //并行
+//           println("C-middle")
+//
+//       }
+//   }
 
 
 

@@ -1,3 +1,4 @@
+import android.widget.ListView
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,12 +22,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
 import com.example.kotlinstart.internal.BinaryType
 
 import com.example.kotlinstart.internal.DownloadTask
 import com.example.kotlinstart.internal.MultiThreadDownloadManager
+import com.example.kotlinstart.internal.MultiThreadDownloadManager.downloadingTaskFlow
+import com.example.kotlinstart.internal.TaskStatus
 import com.example.kotlinstart.internal.convertBinaryType
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 
@@ -41,15 +52,24 @@ fun FileTileBottomSheet(
 
     val coroutineScope = rememberCoroutineScope()
 
+    val chunkProgress by downloadingTaskFlow
+        .map {
+            it.firstOrNull { it.taskInformation.taskID == selectingTask.taskInformation.taskID }?.chunkProgress
+        }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = coroutineScope,
+            started = SharingStarted.Eagerly,
+            initialValue = DownloadTask.Default.chunkProgress
+        )
+        .collectAsState()
+
+
 
     //Info
     var url by remember { mutableStateOf(selectingTask.taskInformation.downloadUrl) } //刷新下载地址??
     var fileName by remember { mutableStateOf(selectingTask.taskInformation.taskName) }
-//    val fileName = selectingTask.taskInformation.taskName
 
-    //(speedLimitRange*(50*BinaryType.MB.size)).toLong()
-
-    //settingPanel
     var speedLimitRange by remember { mutableFloatStateOf((selectingTask.speedLimit.toFloat())/(50* BinaryType.MB.size)) } // 0 表示不限速
     var threadCount by remember { mutableIntStateOf(selectingTask.threadCount) }
 
@@ -90,29 +110,46 @@ fun FileTileBottomSheet(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .height(200.dp)
+                        .height(100.dp)
                         .fillMaxWidth()
 
                 ){
-                    Text(
 
-                        text = "should ready for chunk Progress",
-//                            color = Color.RED
+
+                    Row{
+
+                    }
+                    Text(
+                        text = "size: ${chunkProgress?.sum()}",
+
                     )
                 }
 
 
                 Column {
 
-                    ListItem(headlineContent = {
-                        Row{
-//                                Icon(painter = Icons.Default.Paused, contentDescription = "Pause")
+                    ListItem(
+                        modifier = Modifier.clickable(
+                            onClick = {
 
-                            Spacer(modifier = Modifier.width(16.dp))
+                                coroutineScope.launch {
+                                    MultiThreadDownloadManager.updateTaskStatus(
+                                        context = localContext,
+                                        taskID = selectingTask.taskInformation.taskID,
+                                        taskStatus = TaskStatus.Paused
+                                    )
+                                }
 
-                            Text(text = "暂停")
+                            }
+                        ),
 
-                        }
+                        headlineContent = {
+                            Row{
+                                Icon(imageVector = Icons.Default.Pause, contentDescription = "Pause")
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Text(text = "暂停")
+
+                            }
                     })
 
                     Spacer(modifier = Modifier.height(16.dp))
