@@ -1,8 +1,5 @@
-package com.example.kotlinstart.internal
+package com.example.kotlinstart.internal.android
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.AlarmManager
 import com.example.kotlinstart.R
 

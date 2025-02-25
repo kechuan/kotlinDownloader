@@ -32,10 +32,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.documentfile.provider.DocumentFile
-import com.example.kotlinstart.internal.BinaryType
+
 import com.example.kotlinstart.internal.DownloadTask
 import com.example.kotlinstart.internal.TaskInformation
-import com.example.kotlinstart.internal.convertBinaryType
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -47,7 +47,7 @@ fun AddTaskDialog(
     onDismiss: () -> Unit,
     onConfirm: (DownloadTask) -> Unit, // 最终确认回调
     defaultStoragePath: Uri? = null,
-    dialogStatus: Boolean
+//    dialogStatus: Boolean
 ) {
     var url by remember { mutableStateOf(linkUrl) }
     var fileName by remember { mutableStateOf("") }
@@ -78,8 +78,8 @@ fun AddTaskDialog(
 
 
     // 自动获取文件名逻辑
-    LaunchedEffect(dialogStatus, url) {
-        if (dialogStatus && url.isNotEmpty() && isAutoNamed) {
+    LaunchedEffect(url) {
+        if (url.isNotEmpty() && isAutoNamed) {
             fileName = try {
                 // 模拟网络请求获取文件名
                 withContext(Dispatchers.IO) {
@@ -95,7 +95,7 @@ fun AddTaskDialog(
         }
     }
 
-    if (dialogStatus) {
+//    if (dialogStatus) {
         Dialog(onDismissRequest = onDismiss) {
             Surface(
                 shape = RoundedCornerShape(8.dp),
@@ -259,6 +259,6 @@ fun AddTaskDialog(
                 }
             }
         }
-    }
+//    }
 }
 

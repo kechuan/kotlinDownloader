@@ -1,16 +1,8 @@
 package com.example.kotlinstart.internal
 
+import TaskStatus
 import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
-
-@Serializable
-enum class TaskStatus{
-    Pending,
-    Activating,
-    Finished,
-    Paused,
-    Stopped
-}
 
 @Serializable
 @Immutable

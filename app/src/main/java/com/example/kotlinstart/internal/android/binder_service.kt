@@ -1,16 +1,14 @@
-package com.example.kotlinstart.internal
+package com.example.kotlinstart.internal.android
 
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.Service
-import android.app.Service.STOP_FOREGROUND_REMOVE
 
 import android.content.Intent
 import android.net.Uri
 import android.os.Binder
 import android.os.IBinder
 import android.util.Log
-import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 
 import androidx.core.content.ContextCompat
@@ -161,17 +159,17 @@ class ProgressBinderService: Service() {
 
         //暂停按钮
         val pauseIntent = Intent(this, NotificationActionReceiver::class.java).apply {
-            action = ProgressActionType.Pause.actionName
+            setAction(ProgressActionType.Pause.actionName)
         }
 
         // 继续按钮
         val resumeIntent = Intent(this, NotificationActionReceiver::class.java).apply {
-            action = ProgressActionType.Resume.actionName
+            setAction(ProgressActionType.Resume.actionName)
         }
 
         // 隐藏按钮
         val hideIntent = Intent(this, NotificationActionReceiver::class.java).apply {
-            action = ProgressActionType.Hide.actionName
+            setAction(ProgressActionType.Hide.actionName)
         }
 
         val pendingIntent = MyChannel.defaultActivityIntent(context = this, intent = jumpIntent)

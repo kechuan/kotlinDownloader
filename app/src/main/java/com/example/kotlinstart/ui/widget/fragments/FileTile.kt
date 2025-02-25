@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.twotone.StopCircle
 
@@ -27,9 +28,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import com.example.kotlinstart.internal.MultiThreadDownloadManager
 import com.example.kotlinstart.internal.MultiThreadDownloadManager.downloadingTaskFlow
-import com.example.kotlinstart.internal.TaskStatus
-import com.example.kotlinstart.internal.TaskStatus.*
-import com.example.kotlinstart.internal.convertBinaryType
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -64,16 +62,8 @@ fun FileTile(
 
     val taskStatusState by currentTaskStatusFlow.collectAsState()
 
-    var iconStatus = Icons.Default.History
+    var iconStatus = convertIconState(taskStatusState)
 
-    when(taskStatusState){
-        Pending -> iconStatus = Icons.Default.History
-        Activating -> iconStatus = Icons.Default.Pause
-        Paused -> iconStatus = Icons.Default.PlayArrow
-        Finished -> iconStatus = Icons.Default.Done
-        Stopped -> iconStatus = Icons.Default.StopCircle
-        null -> {}
-    }
 
     ListItem(
         modifier = Modifier.combinedClickable(
@@ -86,12 +76,12 @@ fun FileTile(
                     .padding(horizontal = 16.dp)
                     .clickable(
                         onClick = {
-                            if( Paused == taskStatusState ){
+                            if( TaskStatus.Paused == taskStatusState ){
                                 coroutineScope.launch {
                                     MultiThreadDownloadManager.updateTaskStatus(
                                         context = localContext,
                                         taskID = taskID,
-                                        taskStatus = Activating
+                                        taskStatus = TaskStatus.Activating
                                     )
 
                                     MultiThreadDownloadManager.addTask(
@@ -106,12 +96,12 @@ fun FileTile(
                             }
 
                             else{
-                                if( Finished != taskStatusState) {
+                                if( TaskStatus.Finished != taskStatusState) {
                                     coroutineScope.launch {
                                         MultiThreadDownloadManager.updateTaskStatus(
                                             context = localContext,
                                             taskID = taskID,
-                                            taskStatus = Paused
+                                            taskStatus = TaskStatus.Paused
                                         )
                                     }
 

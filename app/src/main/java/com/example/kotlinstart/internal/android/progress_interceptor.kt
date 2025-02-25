@@ -1,4 +1,4 @@
-package com.example.kotlinstart.internal;
+package com.example.kotlinstart.internal.android
 
 
 
@@ -11,6 +11,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody
 import okio.Buffer
 import okio.ForwardingSource
+import okio.Source
 import okio.buffer
 
 
@@ -44,7 +45,7 @@ class ProgressResponseBody(
 
     override fun source() = bufferedSource
 
-    private fun source(source: okio.Source): okio.Source {
+    private fun source(source: Source): Source {
         return object : ForwardingSource(source) {
             private var totalBytesRead = 0L
 

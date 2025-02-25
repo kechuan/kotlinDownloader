@@ -1,4 +1,4 @@
-package com.example.kotlinstart.internal
+package com.example.kotlinstart.internal.android
 
 import android.content.BroadcastReceiver
 import android.content.Context

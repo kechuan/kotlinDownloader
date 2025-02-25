@@ -23,21 +23,21 @@
         android:theme="@style/Theme.KotlinStart"
         >
 
-        <service android:name=".internal.CountBinderService"/>
+        <service android:name=".internal.android.CountBinderService"/>
 
         <service
-            android:name=".internal.ProgressBinderService"
+            android:name=".internal.android.ProgressBinderService"
             android:foregroundServiceType="shortService"
         />
 
         <receiver
-            android:name=".internal.NotificationActionReceiver"
+            android:name=".internal.android.NotificationActionReceiver"
             android:exported="false"
             android:enabled="true"
         />
 
         <receiver
-            android:name=".internal.NotificationPublisher"
+            android:name=".internal.android.NotificationPublisher"
             android:exported="false"
             android:enabled="true"
         />

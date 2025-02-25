@@ -1,5 +1,6 @@
 package com.example.kotlinstart.internal
 
+import TaskStatus
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -807,56 +808,5 @@ object MultiThreadDownloadManager: ViewModel() {
 
 }
 
-enum class BinaryType(
-    val binaryType: String,
-    val size: Long
-){
-    B("B",0),
-    KB("KB",1*1024),
-    MB("MB",1*1024*1024),
-    GB("GB",1*1024*1024*1024)
-}
-
-fun convertBinaryType(value: Long): String{
-    var resultType = BinaryType.B.binaryType
-    var resultValue = value.toFloat()
-
-    BinaryType.entries.any {
-        //1000*1024 => 1000 KB => 0.97MB
-
-        if(resultValue<1024) {
-            //划分之后 如果数值超过 1000 那么应该再切割一下 并更新Type
-            resultType = it.binaryType
-
-            if(resultValue>=1000){
-                resultValue /= BinaryType.KB.size
-                return@any false
-            }
-
-            else{
-                return@any true
-            }
-
-        }
-
-        else{
-            resultValue /= BinaryType.KB.size
-        }
-
-        return@any false
 
 
-
-    }
-
-
-    var splitResult = resultValue.toString().split(".")
-
-    if(splitResult.last().length <= 2){
-        return "$resultValue$resultType"
-    }
-
-    return "${splitResult[0]}.${splitResult[1].substring(0,2)}$resultType"
-
-
-}

@@ -45,15 +45,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.documentfile.provider.DocumentFile
 import com.example.kotlinstart.internal.MultiThreadDownloadManager
 import com.example.kotlinstart.ui.widget.catalogs.DownloadPageTabs
-//import com.example.kotlinstart.MultiThreadDownloadManager
 import com.example.kotlinstart.ui.widget.catalogs.DownloadRoutes
 
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
 
 import kotlinx.coroutines.launch
-import java.io.FileOutputStream
-import java.io.IOException
+
 
 @Composable
 fun DownloadTaskPage(){
@@ -64,7 +61,6 @@ fun DownloadTaskPage(){
 
     var newTaskDialogStatus by remember { mutableStateOf(false) }
     var selectingTile by remember{ mutableStateOf(DownloadTask()) }
-
 
 
     if(newTaskDialogStatus) {
@@ -79,19 +75,21 @@ fun DownloadTaskPage(){
                 )
 
                 println("result:$downloadTask")
+                newTaskDialogStatus = false
             },
             defaultStoragePath = null,
-            dialogStatus = newTaskDialogStatus
+//            dialogStatus = newTaskDialogStatus
 
         )
     }
 
-    if(selectingTile.taskInformation.taskID != "taskID"){
+    if(selectingTile.taskInformation.taskID != DownloadTask.Default.taskInformation.taskID){
         FileTileBottomSheet(
             selectingTask = selectingTile,
             onDismiss = {
                 selectingTile = DownloadTask()
             }
+
         )
     }
 

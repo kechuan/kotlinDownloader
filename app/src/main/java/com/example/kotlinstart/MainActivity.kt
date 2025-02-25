@@ -57,11 +57,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
-import com.example.kotlinstart.internal.CountBinder
-import com.example.kotlinstart.internal.CountBinderService
+import com.example.kotlinstart.internal.android.CountBinder
+import com.example.kotlinstart.internal.android.CountBinderService
 import com.example.kotlinstart.internal.MultiThreadDownloadManager
-import com.example.kotlinstart.internal.MyChannel
-import com.example.kotlinstart.internal.ProgressBinderService
+import com.example.kotlinstart.internal.android.MyChannel
+import com.example.kotlinstart.internal.android.ProgressBinderService
 
 import com.example.kotlinstart.models.StorageModel
 import com.example.kotlinstart.models.StorageModel.getPathFromUri
