@@ -12,11 +12,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.kotlinstart"
+    namespace = "com.example.kotlinDownloader"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.kotlinstart"
+        applicationId = "com.example.kotlinDownloader"
         minSdk = 27
         targetSdk = 34
         versionCode = 1
