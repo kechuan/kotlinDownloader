@@ -15,7 +15,6 @@ object MainViewModel : ViewModel() {
     private val _mainFabState = MutableStateFlow(FabState())
     val mainFabState = _mainFabState.asStateFlow()
 
-
     init{
         Log.d("MainViewModel",mainFabState.value.toString()) // 打印以确认变量是否被初始化
         initModel()
@@ -27,6 +26,7 @@ object MainViewModel : ViewModel() {
 
     fun increaseCount(){
         //更新需要赋值整个Object才能检测得到更新 不知道以后有没有改良手段
+        //没有 这是 kotlin 推崇的特性
         _mainFabState.value = _mainFabState.value.copy(
             currentValue = mainFabState.value.currentValue+1
         )

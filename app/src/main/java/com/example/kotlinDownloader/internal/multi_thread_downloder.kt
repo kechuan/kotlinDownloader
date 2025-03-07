@@ -5,13 +5,12 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import co.touchlab.stately.concurrency.value
+import com.example.kotlinDownloader.internal.android.TaskProgressBinderService
 import com.example.kotlinDownloader.models.DownloadViewModel
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import okhttp3.Headers
-import okhttp3.ResponseBody
-import retrofit2.Response
 
 
 import java.io.FileOutputStream
@@ -69,7 +68,6 @@ object MultiThreadDownloadManager: ViewModel() {
 
     }
 
-
     // 添加下载任务
     @OptIn(DelicateCoroutinesApi::class)
     fun addTask(
@@ -111,53 +109,18 @@ object MultiThreadDownloadManager: ViewModel() {
                             else{
 
                                 //TODO 未知文件大小的处理
-                                fileSize = async { getFileSize(
-                                    downloadUrl = downloadTask.taskInformation.downloadUrl,
-                                    chunkRequestFallback = {
-
-                                        var contentLength = emptyLength
-
-                                        launch {
-                                            withContext(Dispatchers.IO){
-                                                Log.d("taskInfo","trigger fallback contentGET")
-
-                                                Log.d("taskInfo","backup Request")
-                                                val response = downloadRequest.getCustomUrl(downloadTask.taskInformation.downloadUrl,"bytes=0-1")
-                                                Log.d("taskInfo","backup Request done.")
-
-                                                if(response.isSuccessful){
-                                                    val headers = response.headers()
-                                                    Log.d("taskInfo","GET Request Info:$headers")
-
-                                                    // example: content-range: bytes 0-1/144534
-                                                    contentLength = headers["content-range"]?.split("/")?.last()?.toLongOrNull() ?: emptyLength
-
-                                                    Log.d("taskInfo","contentLength: $contentLength")
-
-                                                    if(contentLength == null){
-                                                        //TODO Toaster
-                                                        Log.d("taskInfo","fail to get Size.Quit")
-                                                    }
-                                                }
-
-
-                                            }
-                                        }
-
-
-                                        return@getFileSize contentLength
-
-                                    }
-                                ) }.await().also {
+                                fileSize = async {
+                                    getFileInformation(downloadTask.taskInformation.downloadUrl).fileSize
+                                }.await().also {
 
                                     Log.d("taskInfo","fileName : ${downloadTask.taskInformation.fileName} contentLength Length: $it.")
 
-                                    if(it == null) {
+                                    if(it == 0L) {
                                         Log.d("taskInfo","contentLength get failed. cancel Task.")
                                         cancelJob(downloadTask.taskInformation.taskID)
+                                        return@launch
                                     }
-                                }  ?: return@launch
-
+                                }
 
                             }
 
@@ -431,7 +394,6 @@ object MultiThreadDownloadManager: ViewModel() {
                                             updateTaskProgress(
                                                 downloadTask.taskInformation.taskID,
                                                 chunkProgressList = MutableList<Int>(chunkRangeList.size){chunkFinished},
-                                                currentSpeed = 0L,
                                             )
 
                                             updateTaskStatus(
@@ -538,7 +500,7 @@ object MultiThreadDownloadManager: ViewModel() {
     private fun updateTaskProgress(
         taskID: String,
         chunkProgressList: MutableList<Int>,
-        currentSpeed: Long,
+        currentSpeed: Long = 0L,
     ) = updateTaskInformation(taskID) {
 //        Log.d("taskInfo","chunkProgressList:${chunkProgressList.sum()}")
         it.copy(
@@ -552,13 +514,54 @@ object MultiThreadDownloadManager: ViewModel() {
         speedLimit: Long,
     ) = updateTaskInformation(taskID) { it.copy(speedLimit = speedLimit) }
 
-    fun updatefileName(
+    fun updateFileName(
         taskID: String,
         fileName: String,
     ) = updateTaskInformation(taskID) { it.copy(
         taskInformation =
             it.taskInformation.copy(fileName = fileName)
     )}
+
+    //这里指代的是 所有 hangup 亦或者是 stop状态的Task
+
+    suspend fun pauseAllTask(context: Context){
+        downloadingTaskFlow.value.filter {
+            it.taskStatus == TaskStatus.Activating
+        }.forEach { downloadTask ->
+            updateTaskStatus(
+                context,
+                downloadTask.taskInformation.taskID,
+                TaskStatus.Paused
+            )
+        }
+    }
+
+    suspend fun resumeAllTask(context: Context){
+        downloadingTaskFlow.value.filter {
+            it.taskStatus == TaskStatus.Paused ||
+            it.taskStatus == TaskStatus.Stopped
+        }.forEach { downloadTask ->
+
+            //stop状态 pause会被拦截
+            addTask(
+                context = context,
+                downloadTask,
+                isResume = true
+            ).run {
+                //pause状态 解除hang up 状态
+                updateTaskStatus(
+                    context,
+                    downloadTask.taskInformation.taskID,
+                    TaskStatus.Activating
+                )
+
+                TaskProgressBinderService.taskProgressBinder.startForeground()
+            }
+
+
+
+        }
+    }
 
      suspend fun updateTaskStatus(
          context: Context,
@@ -661,19 +664,20 @@ object MultiThreadDownloadManager: ViewModel() {
     }
 
     fun removeTasks(context: Context){
-        for(currentTask in DownloadViewModel.MultiChooseSet){
+        DownloadViewModel.MultiChooseTaskIDSet.forEach {
             scope.launch {
                 removeTask(
                     context = context,
-                    taskID = currentTask,
+                    taskID = it,
                 )
             }
         }
 
     }
 
-    fun removeAllDownloadingTasks(context: Context){
+    fun removeAllTasks(context: Context){
         downloadingTaskState.value = emptyList()
+        finishedTaskState.value = emptyList()
 
         scope.launch{
             cancelAll()
@@ -728,51 +732,6 @@ object MultiThreadDownloadManager: ViewModel() {
 
     }
 
-    // 获取文件大小
-     suspend fun getFileSize(
-        downloadUrl: String,
-        chunkRequestFallback: () -> Long? = { emptyLength }): Long? {
-
-        var contentLength = emptyLength
-
-        withContext(Dispatchers.IO) {
-
-            try{
-
-                Log.d("taskInfo","try make head response")
-                val response = downloadRequest.getCustomHead(downloadUrl)
-                Log.d("taskInfo","head response done.")
-
-
-                if(response.isSuccessful){
-                    val headers = response.headers()
-
-                    Log.d("headers","headers Info:$headers")
-
-                    contentLength = headers["content-length"]?.toLongOrNull()
-                    Log.d("taskInfo","contentLength:$contentLength")
-
-
-                }
-
-                if(contentLength == null){
-                    Log.d("taskInfo","fail for unknown reason")
-                    contentLength = chunkRequestFallback()
-                }
-
-
-            }
-
-            catch (e: Exception) {
-                Log.d("taskInfo", e.toString())
-
-            }
-        }
-
-        return contentLength
-
-    }
-
      fun calculateChunks(fileSize: Long, chunkCount: Int): List<Pair<Long, Long>> {
         val chunks = mutableListOf<Pair<Long, Long>>()
         var start = 0L
@@ -796,7 +755,6 @@ object MultiThreadDownloadManager: ViewModel() {
         downloadTask: DownloadTask,
         rangeStart: Long, rangeEnd: Long, chunkIndex: Int,
         taskActiveState: StateFlow<TaskStatus?>? = null,
-//        currentDelayDurationState: StateFlow<Float>? = null,
         activeTaskCountState: StateFlow<Int>? = null,
         speedLimitFlow: StateFlow<Long>? = null,
         downloadCallback: ProgressCallback = { current,total -> },
@@ -954,11 +912,6 @@ object MultiThreadDownloadManager: ViewModel() {
     ): DownloadTask? {
         return downloadingTaskFlow.value.find{ it.taskInformation.taskID == taskID } ?:
                finishedTaskFlow.value.find{ it.taskInformation.taskID == taskID }
-    }
-
-    // 等待所有任务完成
-    suspend fun waitForAll() {
-        jobs.joinAll()
     }
 
     fun cancelJob(

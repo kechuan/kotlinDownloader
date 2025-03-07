@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.datastore.preferences.core.edit
 import androidx.documentfile.provider.DocumentFile
+import com.example.kotlinDownloader.internal.AppConfig
 
 import com.example.kotlinDownloader.internal.DownloadTask
 import com.example.kotlinDownloader.internal.MultiThreadDownloadManager
@@ -52,8 +53,6 @@ import com.example.kotlinDownloader.internal.android.judgePermissionUri
 import com.example.kotlinDownloader.internal.convertBinaryType
 import com.example.kotlinDownloader.internal.convertDocUri
 import com.example.kotlinDownloader.internal.convertSpeedLimit
-import com.example.kotlinDownloader.internal.settingStoragePath
-import com.example.kotlinDownloader.internal.settings
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -90,9 +89,13 @@ fun AddTaskDialog(
         storagePath = DocumentFile.fromTreeUri(localContext, it)?.uri
 
         coroutineScope.launch {
-            localContext.settings.edit { settings ->
-                settings[settingStoragePath] = storagePath.toString()
-            }
+            AppConfig.updateAppConfig(
+                localContext,
+                AppConfig.appConfigs.copy(
+                    storagePath.toString()
+                )
+            )
+
         }
     }
 

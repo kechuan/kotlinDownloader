@@ -4,11 +4,11 @@ import MainViewModel
 import RoundedButton
 import android.annotation.SuppressLint
 import android.app.Activity
+
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -71,8 +71,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat.requestPermissions
 import androidx.core.content.ContextCompat
 import coil3.compose.AsyncImage
-import com.example.kotlinDownloader.internal.PaddingH12
 import com.example.kotlinDownloader.internal.PaddingV12
+
+import com.example.kotlinDownloader.internal.android.ProgressBinderService
+
+
 import com.example.kotlinDownloader.models.DownloadViewModel
 import com.example.kotlinDownloader.ui.widget.catalogs.DownloadRoutes
 import kotlinx.coroutines.Dispatchers
@@ -178,8 +181,12 @@ fun GreetingPreview() {
             name = "发出测试通知",
             onClick = {
 
-                if (ContextCompat.checkSelfPermission(localContext, android.Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
+                if (
+                    ContextCompat.checkSelfPermission(
+                        localContext,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
                     requestPermissions(
                         localContext as Activity,
                         arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
@@ -189,6 +196,9 @@ fun GreetingPreview() {
                 }
 
                 else{
+                    ProgressBinderService.progressBinder.startForeground()
+                    ProgressBinderService.progressBinder.startProgressUpdate()
+
                     println("notification already approved.")
                 }
 

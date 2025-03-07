@@ -1,23 +1,16 @@
 package com.example.kotlinDownloader.internal
-import androidx.datastore.core.CorruptionException
 
+
+import android.content.Context
+import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.Serializer
 import androidx.datastore.dataStore
-
-import android.content.Context
-import android.net.Uri
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
-
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.map
-
-
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -25,8 +18,8 @@ import java.io.OutputStream
 //val Context.taskData: DataStore<DownloadTask> by preferencesDataStore(name = "taskData")
 
 //基础类型存储 (键值对)
-val Context.settings: DataStore<Preferences> by preferencesDataStore(name = "settings")
-val settingStoragePath = stringPreferencesKey("storagePath")
+//val Context.settings: DataStore<Preferences> by preferencesDataStore(name = "settings")
+//val settingStoragePath = stringPreferencesKey("storagePath")
 
 
 // 复杂类型存储 (TypeAdapter)
@@ -35,12 +28,27 @@ val Context.tasksData: DataStore<DownloadTasks> by dataStore(
     serializer = DownloadTasksSerializer
 )
 
+val Context.settingsConfig: DataStore<AppConfigs> by dataStore(
+    fileName = "settings_config.pb",
+    serializer = AppConfigsSerializer
+)
 
 
 @Serializable
 data class DownloadTasks(
     val tasks: List<DownloadTask> = emptyList()
 )
+
+@Serializable
+data class AppConfigs(
+    val storagePath: String = "storagePath",
+    val threadLimit: Int = 16,
+    val speedLimit: Long = 10*BinaryType.MB.size
+){
+    companion object{
+        val Default = AppConfigs()
+    }
+}
 
 object DownloadTasksSerializer : Serializer<DownloadTasks> {
     override val defaultValue: DownloadTasks = DownloadTasks()
@@ -64,17 +72,52 @@ object DownloadTasksSerializer : Serializer<DownloadTasks> {
     }
 }
 
-object MyDataStore{
+object AppConfigsSerializer : Serializer<AppConfigs> {
+    override val defaultValue: AppConfigs = AppConfigs()
 
-    var storagePath: Uri? = null
-
-    suspend fun init(context: Context){
-        context.settings.data.map{ preferences ->
-            preferences[settingStoragePath]
-        }.first()?.let{
-            storagePath = Uri.parse(it)
+    override suspend fun readFrom(input: InputStream): AppConfigs {
+        try {
+            return Json.decodeFromString(
+                AppConfigs.serializer(),
+                input.readBytes().decodeToString()
+            )
+        } catch (e: SerializationException) {
+            throw CorruptionException("Cannot read download tasks data: ${e.message}", e)
         }
     }
+
+    override suspend fun writeTo(task: AppConfigs, output: OutputStream) {
+        output.write(
+            Json.encodeToString(AppConfigs.serializer(), task)
+                .encodeToByteArray()
+        )
+    }
+}
+
+object AppConfig{
+    var appConfigs = AppConfigs.Default
+
+    suspend fun init(context: Context){
+        appConfigs = getAppConfig(context)
+    }
+
+    suspend fun updateAppConfig(
+        context: Context,
+        newAppConfigs:AppConfigs?,
+    ){
+        newAppConfigs?.let{
+            context.settingsConfig.updateData { current -> newAppConfigs }
+            appConfigs = newAppConfigs
+        }
+    }
+
+    suspend fun getAppConfig(context: Context):AppConfigs = context.settingsConfig.data.first()
+
+
+}
+
+
+object MyDataStore{
 
     suspend fun addTask(context: Context, newTask:DownloadTask){
         context.tasksData.updateData { current ->
@@ -130,7 +173,7 @@ object MyDataStore{
     }
 
     suspend fun removeAllTasks(context: Context){
-        context.tasksData.updateData { current ->  DownloadTasks() }
+        context.tasksData.updateData { current -> DownloadTasks() }
     }
 
 

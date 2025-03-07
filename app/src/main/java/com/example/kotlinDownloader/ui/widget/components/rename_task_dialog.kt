@@ -1,3 +1,5 @@
+package com.example.kotlinDownloader.ui.widget.components
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row

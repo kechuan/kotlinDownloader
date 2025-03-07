@@ -189,10 +189,10 @@ fun FileTile(
                     checked = containStatus,
                     onCheckedChange = {
                         if(containStatus){
-                            DownloadViewModel.MultiChooseSet.remove(taskID)
+                            DownloadViewModel.MultiChooseTaskIDSet.remove(taskID)
                         }
                         else {
-                            DownloadViewModel.MultiChooseSet.add(taskID)
+                            DownloadViewModel.MultiChooseTaskIDSet.add(taskID)
                         }
 
                         containStatus = !containStatus

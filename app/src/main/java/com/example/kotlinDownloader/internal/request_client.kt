@@ -18,6 +18,7 @@ class HttpRequestClient{
         val githubClient: Retrofit =
             Retrofit
                 .Builder()
+                //baseUrl 不允许 空字符
                 .baseUrl(GithubServerLink.baseUrl)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

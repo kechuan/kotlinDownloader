@@ -1,37 +1,47 @@
 package com.example.kotlinDownloader.internal.android
 
-import android.app.AlarmManager
-import com.example.kotlinDownloader.R
-
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-
+import android.util.Log
 import androidx.core.app.NotificationCompat
+
 import androidx.core.content.ContextCompat.getSystemService
+import com.example.kotlinDownloader.R
+import com.example.kotlinDownloader.internal.DownloadTask
+import com.example.kotlinDownloader.internal.android.ProgressBinderService.Companion.progressBinder
+import com.example.kotlinDownloader.internal.android.TaskProgressBinderService.Companion.taskProgressBinder
+import com.example.kotlinDownloader.internal.convertBinaryType
+import com.example.kotlinDownloader.internal.convertDownloadedSize
 
-import kotlin.random.Random
 
 
-sealed class ChannelType(val channelName :String){
-    object Example: ChannelType("channelExample")
-    object Progress: ChannelType("channelShowProgress")
-    object Alarm: ChannelType("channelAlarm")
+sealed class ChannelType(val channelName:String,val channelIndex:Int){
+    object Example: ChannelType("channelExample",1)
+    object Progress: ChannelType("channelShowProgress",2)
+    object Alarm: ChannelType("channelAlarm",3)
+    object TaskProgress: ChannelType("channelTaskProgress",1024)
 }
+
+const val downloadTaskGroupKey = "kotlinDownloader.TASK_GROUP"
 
 object MyChannel{
     fun defaultActivityIntent (
         context: Context,
         intent: Intent
-    ) = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+    ): PendingIntent? = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+
+    fun defaultServiceIntent (
+        context: Context,
+        intent: Intent
+    ): PendingIntent? = PendingIntent.getService(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
     fun defaultBroadcastIntent (
         context: Context,
         intent: Intent
-    ) = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+    ): PendingIntent? = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
 
     fun init(context:Context){
@@ -48,15 +58,23 @@ object MyChannel{
             context = context,
             channelID = ChannelType.Progress.channelName,
             channelName = "进度条通知",
+            descriptionName = "这是一个示例进度条通道",
             importance = NotificationManager.IMPORTANCE_HIGH
         )
 
         registerChannel(
             context = context,
-            channelID = ChannelType.Alarm.channelName,
-            channelName = "提醒通知",
+            channelID = ChannelType.TaskProgress.channelName,
+            channelName = "任务进度通知",
             importance = NotificationManager.IMPORTANCE_HIGH
         )
+
+//        registerChannel(
+//            context = context,
+//            channelID = ChannelType.Alarm.channelName,
+//            channelName = "提醒通知",
+//            importance = NotificationManager.IMPORTANCE_HIGH
+//        )
 
     }
 
@@ -82,64 +100,189 @@ object MyChannel{
         }
 
         //创立channel
-        notificationManager!!.createNotificationChannel(
-            channel
+        notificationManager!!.createNotificationChannel(channel)
+    }
+
+}
+
+fun progressNotification(
+    context: Context,
+    channelName: String,
+    progress: Int,
+    pausePendingIntent: PendingIntent?,
+    resumePendingIntent: PendingIntent?,
+    hidePendingIntent: PendingIntent?,
+    pausedStatus: Boolean
+): NotificationCompat.Builder {
+
+    val notificationBuilder =  NotificationCompat.Builder(
+        context,
+        channelName
+    )
+        .setSmallIcon(R.drawable.ic_launcher_foreground)
+        .setContentTitle("任务进度")
+        .setContentText("当前进度: $progress %")
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setProgress(100,progress,false)
+        .clearActions()
+        .setOngoing(true)
+
+    pausePendingIntent?.let {
+        notificationBuilder.addAction(
+            if (pausedStatus) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+            if (pausedStatus) "继续" else "暂停",
+            if (pausedStatus) resumePendingIntent else pausePendingIntent
         )
     }
 
-}
-
-// Notification & Receiver
-class NotificationPublisher : BroadcastReceiver() {
-
-    override fun onReceive(context: Context, intent: Intent) {
-        val title = intent.getStringExtra("title") ?: "Reminder"
-        val message = intent.getStringExtra("message") ?: "Time's up!"
-
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        val notification = NotificationCompat.Builder(context, ChannelType.Alarm.channelName)
-            .setContentTitle(title)
-            .setContentText(message)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setAutoCancel(true)
-            .build()
-
-        notificationManager.notify(Random.nextInt(), notification)
+    hidePendingIntent?.let{
+        notificationBuilder.addAction(
+            android.R.drawable.ic_media_play,
+            "隐藏",
+            hidePendingIntent
+        )
     }
 
+
+    return notificationBuilder
 }
 
-// 修改调度逻辑，使用 AlarmManager
-fun receiverScheduleNotification(
+fun taskSummaryNotification(
     context: Context,
-    triggerTime: Long,
-    title: String,
-    message: String
-) {
+    channelName: String,
+    activeTaskCount: Int = 0,
+    finishedTaskCount: Int = 0,
+    hidePendingIntent: PendingIntent? = null
 
-    val intent = Intent(context, NotificationPublisher::class.java).apply {
-        putExtra("title", title)
-        putExtra("message", message)
+): NotificationCompat.Builder {
+    val notificationBuilder = NotificationCompat.Builder(
+        context,
+        channelName
+    )
+
+    notificationBuilder.run {
+        setContentTitle("在下载队列中: $activeTaskCount | 已完成 $finishedTaskCount")
+        setSmallIcon(R.drawable.ic_launcher_foreground)
+
+            //TODO 传入 Flow?
+            .setStyle(
+                NotificationCompat.InboxStyle()
+
+                    .addLine("Task1")
+                    .addLine("Task2")
+            )
+
+        setGroup(downloadTaskGroupKey)
+        setGroupSummary(true)
+
+        hidePendingIntent?.let {
+            addAction(
+                android.R.drawable.ic_media_play,
+                "隐藏",
+                hidePendingIntent
+            )
+        }
     }
 
-    val pendingIntent = PendingIntent.getBroadcast(
-        context,
-        Random.nextInt(),
-        intent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-
-    // 使用 set
-    alarmManager.set(
-        AlarmManager.RTC_WAKEUP,
-        triggerTime,
-        pendingIntent
-    )
+    return notificationBuilder
 }
 
+
+
+
+fun taskProgressNotification(
+    context: Context,
+    channelName: String,
+    downloadTask: DownloadTask? = null,
+    pausedStatus: Boolean,
+    pendingIntent: PendingIntent? = null,
+    pausePendingIntent: PendingIntent? = null,
+    resumePendingIntent: PendingIntent? = null,
+//    hidePendingIntent: PendingIntent? = null,
+): NotificationCompat.Builder {
+
+    val notificationBuilder =  NotificationCompat.Builder(
+        context,
+        channelName
+    )
+
+    notificationBuilder.run{
+        //通用
+        setSmallIcon(R.drawable.ic_launcher_foreground)
+
+        // [setContentTitle]: 通用 如果能分离。。
+        // 我的意思说 如果能监听 全局 的 总体速度
+        // 那么这里就可以改改 改成显示每个任务的 Progress / Speed
+        // 不然整不出花活。否则就得每个任务分离显示一个通知 这不好。。
+
+
+        clearActions()
+
+        // progress目前暂且设置: 当无任务/多个任务时 currentProgress 则为null
+        // 即只显示单个任务的 progress/speed
+        downloadTask?.let{
+            val progress = convertDownloadedSize(
+                chunksRangeList = it.taskInformation.chunksRangeList,
+                chunkProgress = it.chunkProgress
+            ).toFloat() / it.taskInformation.fileSize
+
+            setProgress(100,progress.toInt(),false)
+            setContentText("${taskProgressBinder.currentProgress?.toInt()} % ${convertBinaryType(it.currentSpeed)}/s")
+        }
+
+        pendingIntent?.let {
+            setContentIntent(it)
+        }
+
+        pausePendingIntent?.let {
+            addAction(
+                if (pausedStatus) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                if (pausedStatus) "${if(downloadTask==null) "全部" else ""}恢复"
+                else "${if(downloadTask==null) "全部" else ""}暂停",
+                if (pausedStatus) resumePendingIntent else pausePendingIntent
+            )
+        }
+
+
+
+        setGroup(downloadTaskGroupKey)
+
+    }
+
+    return notificationBuilder
+}
+
+
+//// 修改调度逻辑，使用 AlarmManager
+//fun receiverScheduleNotification(
+//    context: Context,
+//    triggerTime: Long,
+//    title: String,
+//    message: String
+//) {
+//
+//    val intent = Intent(context, NotificationPublisher::class.java).apply {
+//        putExtra("title", title)
+//        putExtra("message", message)
+//    }
+//
+//    val pendingIntent = PendingIntent.getBroadcast(
+//        context,
+//        Random.nextInt(),
+//        intent,
+//        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+//    )
+//
+//    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+//
+//    // 使用 set
+//    alarmManager.set(
+//        AlarmManager.RTC_WAKEUP,
+//        triggerTime,
+//        pendingIntent
+//    )
+//}
+//
 
 
 

@@ -53,6 +53,7 @@ import com.example.kotlinDownloader.internal.convertBinaryType
 import com.example.kotlinDownloader.internal.convertChunkSize
 import com.example.kotlinDownloader.internal.convertDownloadedSize
 import com.example.kotlinDownloader.internal.convertIconState
+import com.example.kotlinDownloader.internal.convertSpeedLimit
 
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
@@ -96,20 +97,10 @@ fun FileTileBottomSheet(
         )
         .collectAsState()
 
-
-//    val currentSpeedLimitFlow: StateFlow<Long>? = downloadingTaskFlow
-//        .map {
-//            it.firstOrNull { it.taskInformation.taskID == selectingTask.taskInformation.taskID }?.speedLimit ?: 0L
-//        }
-//        .stateIn(
-//            scope = coroutineScope,
-//            started = SharingStarted.Eagerly,
-//            initialValue = 0L
-//        )
-
     var fileName by remember { mutableStateOf(selectingTask.taskInformation.fileName) }
     var speedLimitRange by remember { mutableFloatStateOf((selectingTask.speedLimit.toFloat())/(20 * BinaryType.MB.size)) } // 0 表示不限速
-    val speedLimit = (speedLimitRange * (20 * BinaryType.MB.size)).toLong()
+
+
 
     //期望: Column -> fileName/(Info)chunkProgress + basicAction[/Pause/resume/Delete]/(control)
     //TabRows(overview/Details)
@@ -311,15 +302,15 @@ fun FileTileBottomSheet(
 
                     if(currentTaskStatus != null){
                         Column{
-                            Text("下载限速: ${if (speedLimitRange == 0F) "不限速" else "${convertBinaryType(value = speedLimit )}/s"}")
-                            PaddingV6
+                            Text("下载限速: ${if (speedLimitRange == 0F) "不限速" else "${convertBinaryType(value = convertSpeedLimit(speedLimitRange) )}/s"}")
+                            PaddingV6()
                             Slider(
                                 value = speedLimitRange,
                                 onValueChange = { speedLimitRange = it },
                                 onValueChangeFinished = {
                                     updateTaskSpeedLimit(
                                         taskID = selectingTask.taskInformation.taskID,
-                                        speedLimit = speedLimit
+                                        speedLimit = convertSpeedLimit(speedLimitRange)
                                     )
                                 },
                                 valueRange = 0f..1f, // 0-20MB/s

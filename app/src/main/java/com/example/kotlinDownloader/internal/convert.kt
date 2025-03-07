@@ -28,7 +28,9 @@ fun convertIconState(taskStatusState: TaskStatus?): ImageVector{
     return iconStatus
 }
 
-fun convertBinaryType(value: Long): String{
+fun convertBinaryType(value: Long?): String{
+    if(value == null) return "0B"
+
     var resultType = BinaryType.B.binaryType
     var resultValue = value.toFloat()
 

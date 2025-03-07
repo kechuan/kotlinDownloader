@@ -17,7 +17,7 @@ object DownloadViewModel: ViewModel() {
     val downloadingTasksFlow: StateFlow<List<DownloadTask>> = MultiThreadDownloadManager.downloadingTaskFlow
     val finishedTasksFlow: StateFlow<List<DownloadTask>> = MultiThreadDownloadManager.finishedTaskFlow
 
-    val MultiChooseSet = mutableSetOf<String>()
+    val MultiChooseTaskIDSet = mutableSetOf<String>()
 
 
 

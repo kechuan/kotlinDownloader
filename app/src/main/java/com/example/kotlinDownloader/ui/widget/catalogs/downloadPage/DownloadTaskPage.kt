@@ -1,14 +1,12 @@
 package com.example.kotlinDownloader.ui.widget.catalogs.downloadPage
 
 import com.example.kotlinDownloader.ui.widget.components.AddTaskDialog
-import com.example.kotlinDownloader.internal.android.DirectoryLauncher
 
 import FileTile
 import FileTileBottomSheet
-import RenameTaskDialog
+import com.example.kotlinDownloader.ui.widget.components.RenameTaskDialog
 import android.app.Activity
 import com.example.kotlinDownloader.internal.DownloadTask
-import com.example.kotlinDownloader.internal.TaskInformation
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -42,16 +40,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.documentfile.provider.DocumentFile
+import com.example.kotlinDownloader.internal.AppConfig
 import com.example.kotlinDownloader.internal.MultiThreadDownloadManager
 import com.example.kotlinDownloader.internal.MyDataStore
-import com.example.kotlinDownloader.internal.android.FilePickerLauncher
-import com.example.kotlinDownloader.internal.convertDocUri
+import com.example.kotlinDownloader.internal.convertChunkSize
+import com.example.kotlinDownloader.internal.convertDownloadedSize
 import com.example.kotlinDownloader.models.DownloadViewModel
 import com.example.kotlinDownloader.ui.widget.catalogs.DownloadPageTabs
 import com.example.kotlinDownloader.ui.widget.catalogs.DownloadRoutes
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 
 
 import kotlinx.coroutines.flow.collectLatest
@@ -66,7 +62,6 @@ fun DownloadTaskPage(){
     val localContext = LocalContext.current
     val localClipboard = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
-
 
     var multiChooseMode by remember { mutableStateOf(false) }
     var newTaskDialogStatus by remember { mutableStateOf(false) }
@@ -89,7 +84,7 @@ fun DownloadTaskPage(){
                     threadCount = threadCount
                 )
             },
-            defaultStoragePath = MyDataStore.storagePath,
+            defaultStoragePath = Uri.parse(AppConfig.appConfigs.storagePath),
         )
     }
 
@@ -100,7 +95,7 @@ fun DownloadTaskPage(){
             onConfirm = { taskID,fileName ->
 
                 // 首先要修改 UI 然后还要修改 数据库?
-                MultiThreadDownloadManager.updatefileName(taskID,fileName).also{
+                MultiThreadDownloadManager.updateFileName(taskID,fileName).also{
                     coroutineScope.launch {
                         MyDataStore.updateTask(
                             context = localContext,
@@ -204,7 +199,7 @@ fun DownloadTaskPage(){
                                 text = { Text("清除任务") },
                                 onClick = {
                                     toolbarExpandedStatus = false
-                                    MultiThreadDownloadManager.removeAllDownloadingTasks(localContext)
+                                    MultiThreadDownloadManager.removeAllTasks(localContext)
                                 },
                                 leadingIcon = {
                                     Icon(
@@ -242,7 +237,8 @@ fun DownloadTaskPage(){
         floatingActionButton = {
             TaskFAB(
                 deleteStatus = multiChooseMode,
-                deleteAction = { multiChooseMode = false }
+                addAction = { newTaskDialogStatus = true },
+                onDelete = { multiChooseMode = false }
             )
         },
         floatingActionButtonPosition = FabPosition.End
@@ -311,22 +307,12 @@ fun DownloadTaskPage(){
 
                                     var totalByteDownloaded = 0L
                                     val chunksRangeList = taskList[it].taskInformation.chunksRangeList
+                                    val chunkProgress = taskList[it].chunkProgress
 
-                                    val progress = if(taskList[it].taskInformation.fileSize == 0L) 0F else{
-
-                                        taskList[it].chunkProgress.mapIndexed { chunkIndex,currentChunk ->
-                                            if(currentChunk == -1){
-                                                totalByteDownloaded += (chunksRangeList[chunkIndex].second - chunksRangeList[chunkIndex].first)+1
-                                            }
-
-                                            else{
-                                                totalByteDownloaded += currentChunk
-                                            }
-                                        }
-
-                                        totalByteDownloaded/taskList[it].taskInformation.fileSize.toFloat()
-
-                                    }
+                                    val progress = convertDownloadedSize(
+                                        chunksRangeList = chunksRangeList,
+                                        chunkProgress = chunkProgress
+                                    ).toFloat() / taskList[it].taskInformation.fileSize
 
                                     Log.d("taskUI","Item ${taskList[it].taskInformation.fileName} update: ${totalByteDownloaded}/${taskList[it].taskInformation.fileSize} ${progress * 100}%")
 
@@ -334,7 +320,7 @@ fun DownloadTaskPage(){
                                         taskID = taskList[it].taskInformation.taskID,
                                         fileName = taskList[it].taskInformation.fileName,
                                         totalSize = taskList[it].taskInformation.fileSize,
-                                        progress = if(progress >= 0F) progress else 1F,
+                                        progress = if(progress >= 0F) progress else 1F, //-1 置 1
                                         currentSpeed = taskList[it].currentSpeed,
                                         multiChooseMode = multiChooseMode,
                                         onClick = {
@@ -342,7 +328,7 @@ fun DownloadTaskPage(){
                                         },
                                         onLongClick = {
                                             multiChooseMode = !multiChooseMode
-                                            DownloadViewModel.MultiChooseSet.clear()
+                                            DownloadViewModel.MultiChooseTaskIDSet.clear()
                                         }
                                     )
 
@@ -408,64 +394,66 @@ fun DownloadPageTabs(
 @Composable
 fun TaskFAB(
     deleteStatus:Boolean,
-    deleteAction : () -> Unit = {},
+    addAction: () -> Unit = {},
+    onDelete : () -> Unit = {},
 ) {
 
     val localContext = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val directoryLauncher = DirectoryLauncher(
-        context = localContext
-    ){ selectedUri ->
-
-        var storagePath : Uri? = DocumentFile.fromTreeUri(localContext, selectedUri)?.uri
-
-        val downloadUrl = "https://github.com/kechuan/banguLite/releases/download/0.5.6%2B1/banguLite-0.5.6.1-armeabi-v7a.apk"
-        val name = "banguLite-0.5.6.1-armeabi-v7a.apk"
-
-        val targetFileUri = convertDocUri(
-            context = localContext,
-            storagePath = storagePath,
-            fileName = name
-        )
-
-        MultiThreadDownloadManager.addTask(
-            context = localContext,
-            DownloadTask(
-                taskInformation = TaskInformation(
-                    fileName = name,
-                    taskID = downloadUrl.hashCode().toString(), //TODO 相同ID处理机制When..
-                    downloadUrl = downloadUrl,
-                    storagePath = targetFileUri!!.toString(),
-                ),
-            ),
-        )
-
-        scope.launch{
-            Log.d("taskInfo","try to add task: fileName: $name, taskID:${downloadUrl.hashCode().toString()}")
-            MultiThreadDownloadManager.waitForAll()
-        }
-    }
-
-
-    // 创建启动器来启动文件选择器，并处理结果 一般是读取
-    val filePickerLauncher = FilePickerLauncher{ uri ->
-        uri?.let{
-            var fileStoragePath : Uri = uri
-            Log.d("test","uri:$fileStoragePath")
-
-        }
-    }
+//    val directoryLauncher = DirectoryLausncher(
+//        context = localContext
+//    ){ selectedUri ->
+//
+//        var storagePath : Uri? = DocumentFile.fromTreeUri(localContext, selectedUri)?.uri
+//
+//        val downloadUrl = "https://github.com/kechuan/banguLite/releases/download/0.5.6%2B1/banguLite-0.5.6.1-armeabi-v7a.apk"
+//        val name = "banguLite-0.5.6.1-armeabi-v7a.apk"
+//
+//        val targetFileUri = convertDocUri(
+//            context = localContext,
+//            storagePath = storagePath,
+//            fileName = name
+//        )
+//
+//        MultiThreadDownloadManager.addTask(
+//            context = localContext,
+//            DownloadTask(
+//                taskInformation = TaskInformation(
+//                    fileName = name,
+//                    taskID = downloadUrl.hashCode().toString(), //TODO 相同ID处理机制When..
+//                    downloadUrl = downloadUrl,
+//                    storagePath = targetFileUri!!.toString(),
+//                ),
+//            ),
+//        )
+//
+//        scope.launch{
+//            Log.d("taskInfo","try to add task: fileName: $name, taskID:${downloadUrl.hashCode().toString()}")
+//            MultiThreadDownloadManager.waitForAll()
+//        }
+//    }
+//
+//
+//    // 创建启动器来启动文件选择器，并处理结果 一般是读取
+//    val filePickerLauncher = FilePickerLauncher{ uri ->
+//        uri?.let{
+//            var fileStoragePath : Uri = uri
+//            Log.d("test","uri:$fileStoragePath")
+//
+//        }
+//    }
 
     FloatingActionButton(
         onClick = {
             if(deleteStatus){
                 MultiThreadDownloadManager.removeTasks(localContext)
-                deleteAction()
+                onDelete()
             }
 
             else{
-                directoryLauncher.launch(null)
+                addAction()
+//                directoryLauncher.launch(null)
             }
 
         },

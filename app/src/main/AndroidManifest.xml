@@ -23,24 +23,12 @@
         android:theme="@style/Theme.KotlinDownloader"
         >
 
-        <service android:name=".internal.android.CountBinderService"/>
-
         <service
             android:name=".internal.android.ProgressBinderService"
             android:foregroundServiceType="shortService"
         />
 
-        <receiver
-            android:name=".internal.android.NotificationActionReceiver"
-            android:exported="false"
-            android:enabled="true"
-        />
 
-        <receiver
-            android:name=".internal.android.NotificationPublisher"
-            android:exported="false"
-            android:enabled="true"
-        />
 
         <activity
             android:name=".MainActivity"
@@ -58,7 +46,7 @@
                     <category android:name="android.intent.category.BROWSABLE" />
                     <category android:name="android.intent.category.DEFAULT" />
 
-                    <data android:scheme="test" android:host="native"/>
+                    <data android:scheme="downloader"/>
                 </intent-filter>
 
         </activity>
