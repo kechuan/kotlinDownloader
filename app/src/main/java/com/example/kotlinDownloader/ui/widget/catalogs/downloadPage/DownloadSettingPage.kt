@@ -1,4 +1,4 @@
-package com.example.kotlinDownloader.ui.widget.catalogs
+package com.example.kotlinDownloader.ui.widget.catalogs.downloadPage
 
 
 import android.annotation.SuppressLint

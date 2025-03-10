@@ -1,5 +1,6 @@
 package com.example.kotlinDownloader.ui.widget.components
 
+import androidx.compose.ui.graphics.Color
 import android.net.Uri
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
@@ -40,6 +41,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.datastore.preferences.core.edit
 import androidx.documentfile.provider.DocumentFile
 import com.example.kotlinDownloader.internal.AppConfig
+import com.example.kotlinDownloader.internal.BinaryType
 
 import com.example.kotlinDownloader.internal.DownloadTask
 import com.example.kotlinDownloader.internal.MultiThreadDownloadManager
@@ -65,6 +67,7 @@ fun AddTaskDialog(
     onDismiss: () -> Unit,
     onConfirm: (DownloadTask,Int) -> Unit, // 最终确认回调
     threadCount: Int = 5,
+    speedLimit: Long = 0L,
     defaultStoragePath: Uri? = null,
 ) {
 
@@ -72,13 +75,15 @@ fun AddTaskDialog(
 
     var url by remember { mutableStateOf(linkUrl) }
     var storagePath by remember { mutableStateOf(defaultStoragePath) }
-
-    var speedLimitRange by remember { mutableFloatStateOf(0F) } // 0 表示不限速
+    var speedLimitRange by remember { mutableFloatStateOf( speedLimit / (20 * BinaryType.MB.size.toFloat()) )} // 0 表示不限速
     var threadCount by remember { mutableIntStateOf(threadCount) }
 
     var isAutoNamed by remember { mutableStateOf(true) } // 标记是否自动命名
+
+    var responseMessage by remember { mutableStateOf("") } // 请求是否已加载
     var isRequested by remember { mutableStateOf(false) } // 请求是否已加载
     var requestServerFileName by remember { mutableStateOf(TaskInformation.Default.fileName) } // 标记是否自动命名
+
 
     val localContext = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -102,6 +107,8 @@ fun AddTaskDialog(
     // 自动获取文件名逻辑 每当url改变时触发
     LaunchedEffect(url) {
         isRequested = false
+        responseMessage = ""
+
         if (url.isNotEmpty() && isAutoNamed) {
 
             taskInformation = taskInformation.copy(
@@ -111,24 +118,22 @@ fun AddTaskDialog(
             )
 
             //请求数据之后 得出的服务器名称
-                try {
-                    withContext(Dispatchers.IO) {
-                        val requestTaskInformation = MultiThreadDownloadManager.getFileInformation(url)
-//                        fileSize = requestTaskInformation.fileSize
-                        requestServerFileName = requestTaskInformation.fileName
+            try {
+                withContext(Dispatchers.IO) {
+                    val requestTaskInformation = MultiThreadDownloadManager.getFileInformation(url)
+                    requestServerFileName = requestTaskInformation.fileName
 
-                        taskInformation = requestTaskInformation.copy(
-                            fileName = taskInformation.fileName
-                        )
+                    taskInformation = requestTaskInformation.copy(
+                        fileName = taskInformation.fileName
+                    )
 
-                        isRequested = true
-                        // TODO 预计行为是HEAD请求获取size与name 否则就默认采用后缀名
-                    }
+                    isRequested = true
+                }
             }
 
             catch (e: Exception) {
-                Log.d("taskDialog","未知文件")
-                ""
+                Log.d("taskDialog","未知错误: ${e.toString()}")
+                responseMessage = e.toString()
             }
         }
     }
@@ -208,9 +213,10 @@ fun AddTaskDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ){
+
                         Text("文件大小: ${if (taskInformation.fileSize == 0L) "未知" else convertBinaryType(value = taskInformation.fileSize)}")
 
-                        if(!isRequested && url.isNotEmpty()){
+                        if(responseMessage.isEmpty() && !isRequested && url.isNotEmpty()){
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
                                 strokeWidth = 3.dp
@@ -219,7 +225,9 @@ fun AddTaskDialog(
                     }
 
                     AnimatedVisibility(
-                        visible = requestServerFileName != TaskInformation.Default.fileName,
+                        visible =
+                            requestServerFileName != TaskInformation.Default.fileName ||
+                            responseMessage.isNotEmpty(),
                         enter = fadeIn() + expandIn(),
                         exit = shrinkOut() + fadeOut(),
                     ){
@@ -229,13 +237,27 @@ fun AddTaskDialog(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
+                                    .clickable(
+                                        enabled = taskInformation.fileSize != -1L
+                                    ){
                                         taskInformation = taskInformation.copy(
                                             fileName = requestServerFileName
                                         )
                                     }
                             ){
-                                Text("服务端获取的文件名: $requestServerFileName")
+
+                                if(responseMessage.isNotEmpty()){
+
+                                    Text(
+                                        text = "错误: $responseMessage",
+                                        color = Color.Red
+                                    )
+                                }
+
+                                else{
+                                    Text("服务端获取结果: $requestServerFileName")
+                                }
+
                             }
 
                             PaddingV6()
@@ -282,6 +304,8 @@ fun AddTaskDialog(
 
                         TextButton(
                             onClick = {
+                                if(responseMessage.isNotEmpty()) return@TextButton
+
                                 val permissionList = localContext.contentResolver.persistedUriPermissions
 
                                 Log.d("storagePath","permissionList:$permissionList")
@@ -330,7 +354,7 @@ fun AddTaskDialog(
                                 onDismiss()
                             }
                         ) {
-                            Text("确认")
+                            Text("确认", color = if(responseMessage.isNotEmpty()) Color.Gray else Color.Unspecified)
                         }
                     }
                 }

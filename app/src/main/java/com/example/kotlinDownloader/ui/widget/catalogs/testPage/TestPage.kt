@@ -74,11 +74,14 @@ import coil3.compose.AsyncImage
 import com.example.kotlinDownloader.internal.PaddingV12
 
 import com.example.kotlinDownloader.internal.android.ProgressBinderService
+import com.example.kotlinDownloader.internal.android.TaskProgressBinderService
+import com.example.kotlinDownloader.internal.android.requestNoticePermission
 
 
 import com.example.kotlinDownloader.models.DownloadViewModel
 import com.example.kotlinDownloader.ui.widget.catalogs.DownloadRoutes
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -162,6 +165,8 @@ fun GreetingPreview() {
     val navController = DownloadViewModel.localDownloadNavController.current
     val localContext = LocalContext.current
 
+    val coroutineScope = rememberCoroutineScope()
+
     Column {
 
         Greeting("Android")
@@ -181,29 +186,36 @@ fun GreetingPreview() {
             name = "发出测试通知",
             onClick = {
 
-                if (
-                    ContextCompat.checkSelfPermission(
-                        localContext,
-                        android.Manifest.permission.POST_NOTIFICATIONS
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    requestPermissions(
-                        localContext as Activity,
-                        arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                        0
-                    )
+                if (requestNoticePermission(localContext)){
 
-                }
-
-                else{
                     ProgressBinderService.progressBinder.startForeground()
                     ProgressBinderService.progressBinder.startProgressUpdate()
 
                     println("notification already approved.")
+
                 }
 
             }
         )
+
+        PaddingV12()
+
+        RoundedButton(
+            name = "发出下载测试通知",
+            onClick = {
+
+                if (requestNoticePermission(localContext)){
+
+                    TaskProgressBinderService.taskProgressBinder.startForeground()
+
+                    println("notification already approved.")
+
+                }
+
+            }
+        )
+
+
 
 
 

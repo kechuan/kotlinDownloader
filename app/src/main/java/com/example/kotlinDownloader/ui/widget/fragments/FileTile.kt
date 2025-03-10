@@ -38,6 +38,7 @@ fun FileTile(
     progress: Float,
     currentSpeed: Long,
     totalSize: Long,
+    message: String? = null,
     multiChooseMode: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
@@ -46,12 +47,12 @@ fun FileTile(
     val localContext = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var taskMessage: String? = null
+//    var message: String? = null
 
     val currentTaskStatusFlow: StateFlow<TaskStatus?> = downloadingTaskFlow
         .map{
             //每次更新 status 的时候 顺带获取更新 message 内容
-            taskMessage = it.firstOrNull{ it.taskInformation.taskID == taskID }?.message
+//            taskMessage = it.firstOrNull{ it.taskInformation.taskID == taskID }?.message
             it.firstOrNull{ it.taskInformation.taskID == taskID }?.taskStatus
         }
         .stateIn(
@@ -79,25 +80,20 @@ fun FileTile(
                             if (taskStatusState == TaskStatus.Paused ||
                                 taskStatusState == TaskStatus.Stopped
                             ) {
+
                                 coroutineScope.launch {
-                                    MultiThreadDownloadManager.updateTaskStatus(
-                                        context = localContext,
-                                        taskID = taskID,
-                                        taskStatus =
-                                            if (taskStatusState == TaskStatus.Stopped) TaskStatus.Pending
-                                            else TaskStatus.Activating
-                                    )
 
                                     MultiThreadDownloadManager.addTask(
                                         context = localContext,
                                         downloadTask = downloadingTaskFlow.value.find { it.taskInformation.taskID == taskID },
-                                        isResume = true,
                                     )
 
 
                                 }
 
-                            } else {
+                            }
+
+                            else {
                                 if (TaskStatus.Finished != taskStatusState) {
                                     coroutineScope.launch {
                                         MultiThreadDownloadManager.updateTaskStatus(
@@ -128,51 +124,57 @@ fun FileTile(
 
                 Box {
 
-                    taskMessage?.let{
-                        Text(it)
+                    if(message != null){
+                        Text(
+                            message,
+                            modifier = Modifier.align(
+                                Alignment.Center
+                            )
+                        )
                     }
 
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .height(height = 20.dp)
-                            .fillMaxWidth()
-                        ,
-                        progress = {
-                            if(taskMessage != null) 0F
-                            else progress
-                        },
+                    else{
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .height(height = 20.dp)
+                                .fillMaxWidth()
+                            ,
+                            progress = { progress },
 
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 6.dp)
-                    ){
-
-                        Text(
-                            text = "${convertBinaryType(currentSpeed)}/s",
-                            style = TextStyle(color = Color.Black)
                         )
 
-                        Box(
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(horizontal = 6.dp)
                         ){
-                            Text("|")
+
+                            Text(
+                                text = "${convertBinaryType(currentSpeed)}/s",
+                                style = TextStyle(color = Color.Black)
+                            )
+
+                            Box(
+                                modifier = Modifier.padding(horizontal = 6.dp)
+                            ){
+                                Text("|")
+                            }
+
+                            Text(
+                                text =
+                                    "size: ${
+                                        if(totalSize == 0L) {
+                                            "正在查询信息..."
+                                        }
+                                        else {
+                                            "${convertBinaryType((progress * totalSize).toLong())}/${convertBinaryType(totalSize)}"
+                                        }
+                                    }",
+                            )
+
                         }
 
-                        Text(
-                            text =
-                                "size: ${
-                                    if(totalSize == 0L) {
-                                        "正在查询信息..."
-                                    }
-                                    else {
-                                        "${convertBinaryType((progress * totalSize).toLong())}/${convertBinaryType(totalSize)}"
-                                    }
-                                }",
-                        )
-
                     }
+
 
 
                 }

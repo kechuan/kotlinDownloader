@@ -1,33 +1,37 @@
 package com.example.kotlinDownloader.internal.android
 
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
+import androidx.core.app.ActivityCompat.requestPermissions
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 
 import androidx.core.content.ContextCompat.getSystemService
 import com.example.kotlinDownloader.R
 import com.example.kotlinDownloader.internal.DownloadTask
+import com.example.kotlinDownloader.internal.TaskStatus
 import com.example.kotlinDownloader.internal.android.ProgressBinderService.Companion.progressBinder
 import com.example.kotlinDownloader.internal.android.TaskProgressBinderService.Companion.taskProgressBinder
 import com.example.kotlinDownloader.internal.convertBinaryType
 import com.example.kotlinDownloader.internal.convertDownloadedSize
 
-
-
 sealed class ChannelType(val channelName:String,val channelIndex:Int){
     object Example: ChannelType("channelExample",1)
     object Progress: ChannelType("channelShowProgress",2)
-    object Alarm: ChannelType("channelAlarm",3)
-    object TaskProgress: ChannelType("channelTaskProgress",1024)
+    object TaskProgress: ChannelType("channelTaskProgress",3)
 }
 
-const val downloadTaskGroupKey = "kotlinDownloader.TASK_GROUP"
+const val downloadTaskGroupKey = "kotlinDownloader.download_task_group"
 
 object MyChannel{
+
     fun defaultActivityIntent (
         context: Context,
         intent: Intent
@@ -46,13 +50,13 @@ object MyChannel{
 
     fun init(context:Context){
 
-        registerChannel(
-            context = context,
-            channelID = ChannelType.Example.channelName,
-            channelName = "简单通知通道",
-            descriptionName = "这是一个示例通知通道",
-            importance = NotificationManager.IMPORTANCE_HIGH
-        )
+//        registerChannel(
+//            context = context,
+//            channelID = ChannelType.Example.channelName,
+//            channelName = "简单通知通道",
+//            descriptionName = "这是一个示例通知通道",
+//            importance = NotificationManager.IMPORTANCE_HIGH
+//        )
 
         registerChannel(
             context = context,
@@ -66,6 +70,7 @@ object MyChannel{
             context = context,
             channelID = ChannelType.TaskProgress.channelName,
             channelName = "任务进度通知",
+            descriptionName = "这是一个下载时的前台服务通知",
             importance = NotificationManager.IMPORTANCE_HIGH
         )
 
@@ -105,13 +110,43 @@ object MyChannel{
 
 }
 
+fun verifyNoticePermission(context: Context): Boolean =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    } else {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.areNotificationsEnabled()
+    }
+
+fun requestNoticePermission(context: Context): Boolean{
+    if ( verifyNoticePermission(context) ) return true
+
+    else{
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(
+                context as Activity,
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                0
+            ).run{
+                return@requestNoticePermission verifyNoticePermission(context)
+            }
+        }
+
+    }
+
+    return false
+}
+
 fun progressNotification(
     context: Context,
     channelName: String,
     progress: Int,
-    pausePendingIntent: PendingIntent?,
-    resumePendingIntent: PendingIntent?,
-    hidePendingIntent: PendingIntent?,
+    pausePendingIntent: PendingIntent? = null,
+    resumePendingIntent: PendingIntent? = null,
+    hidePendingIntent: PendingIntent? = null,
     pausedStatus: Boolean
 ): NotificationCompat.Builder {
 
@@ -119,30 +154,30 @@ fun progressNotification(
         context,
         channelName
     )
-        .setSmallIcon(R.drawable.ic_launcher_foreground)
-        .setContentTitle("任务进度")
-        .setContentText("当前进度: $progress %")
-        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-        .setProgress(100,progress,false)
-        .clearActions()
-        .setOngoing(true)
 
-    pausePendingIntent?.let {
-        notificationBuilder.addAction(
-            if (pausedStatus) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
-            if (pausedStatus) "继续" else "暂停",
-            if (pausedStatus) resumePendingIntent else pausePendingIntent
-        )
+    notificationBuilder.run{
+        setSmallIcon(R.drawable.ic_launcher_foreground)
+        setContentTitle("任务进度")
+        setContentText("当前进度: $progress %")
+        setProgress(100,progress,false)
+        setOngoing(true)
+        pausePendingIntent?.let {
+            addAction(
+                if (pausedStatus) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                if (pausedStatus) "继续" else "暂停",
+                if (pausedStatus) resumePendingIntent else pausePendingIntent
+            )
+        }
+
+        hidePendingIntent?.let{
+            addAction(
+                android.R.drawable.ic_media_play,
+                "隐藏",
+                hidePendingIntent
+            )
+        }
+
     }
-
-    hidePendingIntent?.let{
-        notificationBuilder.addAction(
-            android.R.drawable.ic_media_play,
-            "隐藏",
-            hidePendingIntent
-        )
-    }
-
 
     return notificationBuilder
 }
@@ -150,9 +185,11 @@ fun progressNotification(
 fun taskSummaryNotification(
     context: Context,
     channelName: String,
-    activeTaskCount: Int = 0,
+    downloadingQueueCount: Int = 0,
     finishedTaskCount: Int = 0,
-    hidePendingIntent: PendingIntent? = null
+    hidePendingIntent: PendingIntent? = null,
+    pausePendingIntent: PendingIntent? = null,
+    resumePendingIntent: PendingIntent? = null,
 
 ): NotificationCompat.Builder {
     val notificationBuilder = NotificationCompat.Builder(
@@ -160,20 +197,11 @@ fun taskSummaryNotification(
         channelName
     )
 
-    notificationBuilder.run {
-        setContentTitle("在下载队列中: $activeTaskCount | 已完成 $finishedTaskCount")
+    notificationBuilder.apply {
+        setContentTitle("在下载队列中: $downloadingQueueCount | 已完成 $finishedTaskCount")
         setSmallIcon(R.drawable.ic_launcher_foreground)
-
-            //TODO 传入 Flow?
-            .setStyle(
-                NotificationCompat.InboxStyle()
-
-                    .addLine("Task1")
-                    .addLine("Task2")
-            )
-
+        setOngoing(true)
         setGroup(downloadTaskGroupKey)
-        setGroupSummary(true)
 
         hidePendingIntent?.let {
             addAction(
@@ -182,23 +210,37 @@ fun taskSummaryNotification(
                 hidePendingIntent
             )
         }
+
+        pausePendingIntent?.let {
+
+            addAction(
+                android.R.drawable.ic_media_pause,
+                "全部暂停",
+                pausePendingIntent
+            )
+
+        }
+
+        resumePendingIntent?.let{
+            addAction(
+                android.R.drawable.ic_media_play,
+                "全部恢复",
+                resumePendingIntent
+            )
+        }
     }
 
     return notificationBuilder
 }
 
 
-
-
 fun taskProgressNotification(
     context: Context,
     channelName: String,
     downloadTask: DownloadTask? = null,
-    pausedStatus: Boolean,
     pendingIntent: PendingIntent? = null,
     pausePendingIntent: PendingIntent? = null,
     resumePendingIntent: PendingIntent? = null,
-//    hidePendingIntent: PendingIntent? = null,
 ): NotificationCompat.Builder {
 
     val notificationBuilder =  NotificationCompat.Builder(
@@ -209,14 +251,7 @@ fun taskProgressNotification(
     notificationBuilder.run{
         //通用
         setSmallIcon(R.drawable.ic_launcher_foreground)
-
-        // [setContentTitle]: 通用 如果能分离。。
-        // 我的意思说 如果能监听 全局 的 总体速度
-        // 那么这里就可以改改 改成显示每个任务的 Progress / Speed
-        // 不然整不出花活。否则就得每个任务分离显示一个通知 这不好。。
-
-
-        clearActions()
+        setGroup(downloadTaskGroupKey)
 
         // progress目前暂且设置: 当无任务/多个任务时 currentProgress 则为null
         // 即只显示单个任务的 progress/speed
@@ -226,64 +261,41 @@ fun taskProgressNotification(
                 chunkProgress = it.chunkProgress
             ).toFloat() / it.taskInformation.fileSize
 
-            setProgress(100,progress.toInt(),false)
-            setContentText("${taskProgressBinder.currentProgress?.toInt()} % ${convertBinaryType(it.currentSpeed)}/s")
+            setContentTitle(downloadTask.taskInformation.fileName)
+
+            if(downloadTask.taskStatus == TaskStatus.Finished){
+                setContentText("已完成")
+                setOngoing(false)
+                setAutoCancel(true)
+            }
+
+            else{
+                setProgress(100,(progress*100).toInt(),false)
+                setContentText("${(progress*100).toInt()} % ${convertBinaryType(it.currentSpeed)}/s")
+                setOngoing(true)
+            }
+
+
+            pausePendingIntent?.let {
+                if(downloadTask.taskStatus != TaskStatus.Finished){
+                    addAction(
+                        if (downloadTask.taskStatus != TaskStatus.Activating) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                        if (downloadTask.taskStatus != TaskStatus.Activating) "恢复" else "暂停",
+                        if (downloadTask.taskStatus != TaskStatus.Activating) resumePendingIntent else pausePendingIntent
+                    )
+                }
+            }
+
         }
 
         pendingIntent?.let {
             setContentIntent(it)
         }
 
-        pausePendingIntent?.let {
-            addAction(
-                if (pausedStatus) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
-                if (pausedStatus) "${if(downloadTask==null) "全部" else ""}恢复"
-                else "${if(downloadTask==null) "全部" else ""}暂停",
-                if (pausedStatus) resumePendingIntent else pausePendingIntent
-            )
-        }
 
-
-
-        setGroup(downloadTaskGroupKey)
 
     }
 
     return notificationBuilder
 }
-
-
-//// 修改调度逻辑，使用 AlarmManager
-//fun receiverScheduleNotification(
-//    context: Context,
-//    triggerTime: Long,
-//    title: String,
-//    message: String
-//) {
-//
-//    val intent = Intent(context, NotificationPublisher::class.java).apply {
-//        putExtra("title", title)
-//        putExtra("message", message)
-//    }
-//
-//    val pendingIntent = PendingIntent.getBroadcast(
-//        context,
-//        Random.nextInt(),
-//        intent,
-//        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-//    )
-//
-//    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-//
-//    // 使用 set
-//    alarmManager.set(
-//        AlarmManager.RTC_WAKEUP,
-//        triggerTime,
-//        pendingIntent
-//    )
-//}
-//
-
-
-
 

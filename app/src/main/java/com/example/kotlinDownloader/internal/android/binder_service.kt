@@ -3,7 +3,11 @@ package com.example.kotlinDownloader.internal.android
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ComponentName
+import android.content.Context
+import android.content.Context.BIND_AUTO_CREATE
 import android.content.Intent
+import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Binder
 import android.os.IBinder
@@ -30,6 +34,17 @@ sealed class ProgressActionType(val actionName: String){
     object Pause : ProgressActionType("ACTION_PAUSE")
     object Resume : ProgressActionType("ACTION_RESUME")
     object Hide : ProgressActionType("ACTION_HIDE")
+}
+
+fun <T> defaultBindService(context: Context, createClass :Class<T>){
+    context.bindService(
+        Intent(context, createClass),
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {}
+            override fun onServiceDisconnected(name: ComponentName?) {}
+        },
+        BIND_AUTO_CREATE
+    )
 }
 
 class ProgressBinder(private val service: ProgressBinderService = ProgressBinderService()) : Binder() {
@@ -89,53 +104,9 @@ class ProgressBinderService: Service() {
     }
 
     private lateinit var notificationManager: NotificationManager
-    private var currentNotificationBuilder : NotificationCompat.Builder? = null
 
-
-    override fun onCreate(){
-        super.onCreate()
-
-        progressBinder = ProgressBinder(this)
-
-        notificationManager =
-            ContextCompat.getSystemService(this, NotificationManager::class.java) as NotificationManager
-
-    }
-
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-
-        //而这个中转站是负责和 bind service 的方法 沟通的
-        Log.d("test","receive intent:$intent")
-
-        when (intent?.action) {
-
-            ProgressActionType.Pause.actionName -> {
-                Log.d("test","receive ${ProgressActionType.Pause.actionName}")
-                progressBinder.pauseProgress()
-            }
-
-            ProgressActionType.Resume.actionName -> {
-                Log.d("test","receive ${ProgressActionType.Resume.actionName}")
-                progressBinder.resumeProgress()
-            }
-
-            ProgressActionType.Hide.actionName -> {
-                Log.d("test","receive ${ProgressActionType.Hide.actionName}")
-                progressBinder.stopForeground()
-            }
-
-        }
-
-        return super.onStartCommand(intent, flags, startId)
-    }
 
     private fun buildNotification(): Notification{
-
-        val jumpIntent = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("test://native/1105")
-        )
 
         //自收自发
         val pauseIntent = Intent(this, ProgressBinderService::class.java).apply {
@@ -152,39 +123,23 @@ class ProgressBinderService: Service() {
             setAction(ProgressActionType.Hide.actionName)
         }
 
-        val pendingJumpIntent = MyChannel.defaultActivityIntent(context = this, intent = jumpIntent)
         val pausePendingIntent = MyChannel.defaultServiceIntent(context = this, intent = pauseIntent)
         val resumePendingIntent = MyChannel.defaultServiceIntent(context = this, intent = resumeIntent)
         val hidePendingIntent = MyChannel.defaultServiceIntent(context = this, intent = hideIntent)
 
-        //exists
-        currentNotificationBuilder?.let{
-            Log.d("test","update ${progressBinder.getProgress().toInt()} %")
-            return progressNotification(
-                context = this,
-                channelName = ChannelType.Progress.channelName,
-                progress = progressBinder.getProgress().toInt(),
-                pausePendingIntent = pausePendingIntent,
-                resumePendingIntent = resumePendingIntent,
-                hidePendingIntent = hidePendingIntent,
-                pausedStatus = progressBinder.isPausedStatus(),
-            ).build()
-
-        }
 
         //new create
-        currentNotificationBuilder = progressNotification(
+        return progressNotification(
             context = this,
             channelName = ChannelType.Progress.channelName,
-            progress = 0,
+            progress = progressBinder.getProgress().toInt(),
             pausePendingIntent = pausePendingIntent,
             resumePendingIntent = resumePendingIntent,
             hidePendingIntent = hidePendingIntent,
             pausedStatus = progressBinder.isPausedStatus(),
 
-        )
+        ).build()
 
-        return currentNotificationBuilder!!.build()
 
     }
 
@@ -226,6 +181,45 @@ class ProgressBinderService: Service() {
 
     fun updateNotification() = notificationManager.notify(notificationID, buildNotification())
 
+
+    override fun onCreate(){
+        super.onCreate()
+
+        progressBinder = ProgressBinder(this)
+
+        notificationManager =
+            ContextCompat.getSystemService(this, NotificationManager::class.java) as NotificationManager
+
+    }
+
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+
+        //而这个中转站是负责和 bind service 的方法 沟通的
+        Log.d("test","receive intent:$intent")
+
+        when (intent?.action) {
+
+            ProgressActionType.Pause.actionName -> {
+                Log.d("test","receive ${ProgressActionType.Pause.actionName}")
+                progressBinder.pauseProgress()
+            }
+
+            ProgressActionType.Resume.actionName -> {
+                Log.d("test","receive ${ProgressActionType.Resume.actionName}")
+                progressBinder.resumeProgress()
+            }
+
+            ProgressActionType.Hide.actionName -> {
+                Log.d("test","receive ${ProgressActionType.Hide.actionName}")
+                progressBinder.stopForeground()
+            }
+
+        }
+
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = progressBinder
 
     override fun onDestroy() {
@@ -239,109 +233,116 @@ class ProgressBinderService: Service() {
 
 class TaskProgressBinder(private val service: TaskProgressBinderService = TaskProgressBinderService()) : Binder() {
 
-    private var isForeground = false
-
-    //计划:仅当任务只有1个时 可以使用progress数据
-    // 若任务不为1时 则变成 暂停/恢复 所有任务
-    // 同理 已经暂停时 此时恢复任意1个 都会在通知里变成 单任务活跃状态
-
-    //状态显示是单向的 故 此处不再设置 private
-
-    val coroutineScope = CoroutineScope(Dispatchers.Default)
-
-    var targetDownloadTask: DownloadTask? = null
-
-    var currentProgress: Int? = null // 当前进度(仅限单个任务可查看)
-
-    val downloadingTaskFlow = MultiThreadDownloadManager.downloadingTaskFlow
-
-    val activeTaskCount = downloadingTaskFlow.value.count {
-        it.taskStatus == TaskStatus.Activating
-    }
-
-    val finishedTaskCount = MultiThreadDownloadManager.finishedTaskFlow.value.count {
-        it.taskStatus == TaskStatus.Activating
-    }
-
-
     fun getService(): TaskProgressBinderService = service
 
-    suspend fun pauseTask(taskID: String){
-        Log.d("service","pause $taskID")
+    suspend fun pauseAllTask(context: Context) = MultiThreadDownloadManager.pauseAllTask(context)
+    suspend fun resumeAllTask(context: Context) = MultiThreadDownloadManager.resumeAllTask(context)
 
-//        MultiThreadDownloadManager.pauseAllTask(service).run {
-//            getService().updateNotification(taskID)
-//        }
-//
-//
-//        MultiThreadDownloadManager.pauseAllTask(service).run {
-//            getService().updateNotification(taskID)
-//        }
-    }
-
-    suspend fun resumeTask(taskID: String){
-        Log.d("service","resume $taskID")
-//        MultiThreadDownloadManager.resumeAllTask(service).run {
-//            getService().updateNotification(taskID)
-//        }
+    suspend fun pauseTask(
+        context: Context,
+        taskID: String
+    ){
+        MultiThreadDownloadManager.updateTaskStatus(
+            context,
+            taskID,
+            TaskStatus.Paused
+        )
 
     }
+
+    suspend fun resumeTask(
+        context: Context,
+        taskID: String
+    ){
+
+        MultiThreadDownloadManager.updateTaskStatus(
+            context,
+            taskID,
+            TaskStatus.Activating
+        )
+
+    }
+
+    fun updateSummaryNotification() = getService().updateSummaryNotification()
+
+    fun updateTaskNotification(
+        taskID: String
+    ) = getService().updateTaskNotification(taskID)
 
     //这个是 添加任意下载任务时 驱动
     fun startForeground(){
-        if(!isForeground){
-            coroutineScope.launch{
-                getService().startDownloadTaskForeground(
-                    downloadingTaskFlow.map {
-                        it.firstOrNull { it.taskStatus == TaskStatus.Activating }?.taskInformation?.taskID
-                    }.toList()
-                )
-            }
+        Log.d("downloadTaskService","triggering service")
 
-            isForeground = true
+        //推送下载队列 还是 下载中? 还是队列罢.. 如果只是下载中 就不会出现 下载中 0 但是可以 resume 的诡异现象了
+        getService().coroutineScope.launch {
+            getService().startDownloadTaskForeground(
+                getService().downloadingTaskFlow.value.map {
+                    it.taskInformation.taskID
+                }.toList()
+            )
         }
+
+
     }
+
 
     //用户手动关闭时(Hide)驱动
-    fun stopForeground(){
-        if(isForeground){
-            getService().stopDownloadTaskForeground()
-            isForeground = false
-        }
-
-    }
-
-
+    fun stopForeground() = getService().stopDownloadTaskForeground()
 
 
 }
 
 class TaskProgressBinderService: Service() {
 
-
-
+    private var isForeground = false
     private val notificationID = ChannelType.TaskProgress.channelIndex
+
+    private lateinit var notificationManager: NotificationManager
+
+    val coroutineScope = CoroutineScope(Dispatchers.Default)
+
+    val downloadingTaskFlow = MultiThreadDownloadManager.downloadingTaskFlow
+//    val downloadingTaskCount = MultiThreadDownloadManager.downloadingTaskFlow.value.count()
+    val finishedTaskCount = MultiThreadDownloadManager.finishedTaskFlow.value.count()
 
     companion object{
         lateinit var taskProgressBinder: TaskProgressBinder
     }
 
-    private lateinit var notificationManager: NotificationManager
-    private var currentNotificationBuilder : NotificationCompat.Builder? = null
+    fun getForegroundStatus() = isForeground
 
     private fun buildSummaryNotification(): Notification{
+
+        val pauseAllIntent = Intent(this, TaskProgressBinderService::class.java).apply {
+            setAction(ProgressActionType.Pause.actionName)
+        }
+
+        val resumeAllIntent = Intent(this, TaskProgressBinderService::class.java).apply {
+            setAction(ProgressActionType.Resume.actionName)
+        }
 
         val hideIntent = Intent(this, TaskProgressBinderService::class.java).apply {
             setAction(ProgressActionType.Hide.actionName)
         }
 
+        val pausePendingIntent = MyChannel.defaultServiceIntent(context = this, intent = pauseAllIntent)
+        val resumePendingIntent = MyChannel.defaultServiceIntent(context = this, intent = resumeAllIntent)
         val hidePendingIntent = MyChannel.defaultServiceIntent(context = this, intent = hideIntent)
 
         return taskSummaryNotification(
             context = this,
-            channelName = ChannelType.Progress.channelName,
+            channelName = ChannelType.TaskProgress.channelName,
+            downloadingQueueCount = downloadingTaskFlow.value.count(),
+            finishedTaskCount = finishedTaskCount,
+            pausePendingIntent = pausePendingIntent,
+            resumePendingIntent = resumePendingIntent,
             hidePendingIntent = hidePendingIntent,
+
         ).build()
+    }
+
+    fun updateSummaryNotification(){
+        notificationManager.notify(notificationID, buildSummaryNotification())
     }
 
     private fun buildTaskNotification(taskID: String): Notification{
@@ -354,9 +355,11 @@ class TaskProgressBinderService: Service() {
         //暂停按钮 Action区域
         val pauseIntent = Intent(this, TaskProgressBinderService::class.java).apply {
             setAction(ProgressActionType.Pause.actionName)
+            setData(Uri.parse("downloader://$taskID"))
         }
         val resumeIntent = Intent(this, TaskProgressBinderService::class.java).apply {
             setAction(ProgressActionType.Resume.actionName)
+            setData(Uri.parse("downloader://$taskID"))
         }
 
 
@@ -364,83 +367,66 @@ class TaskProgressBinderService: Service() {
         val pausePendingIntent = MyChannel.defaultServiceIntent(context = this, intent = pauseIntent)
         val resumePendingIntent = MyChannel.defaultServiceIntent(context = this, intent = resumeIntent)
 
-
-        //exists
-        currentNotificationBuilder?.let{
-            Log.d("taskProgressService","${taskProgressBinder.activeTaskCount} update ${taskProgressBinder.currentProgress?.toInt()} %")
-
-            return taskProgressNotification(
-                context = this,
-                channelName = ChannelType.Progress.channelName,
-                downloadTask = null,
-                pausePendingIntent = pausePendingIntent,
-                resumePendingIntent = resumePendingIntent,
-                pendingIntent = pendingIntent,
-//                hidePendingIntent = hidePendingIntent,
-                pausedStatus = false,
-            ).build()
-
-            //当无任务/多个任务时 currentProgress 则为null
-
-        }
-
-        //new create
-        // create的时机一般应是。。刚触发下载时 直白点讲就是 activeTaskCount 0 => 1 时
-        currentNotificationBuilder = taskProgressNotification(
+        return taskProgressNotification(
             context = this,
             channelName = ChannelType.Progress.channelName,
             downloadTask = MultiThreadDownloadManager.findTask(taskID),
             pausePendingIntent = pausePendingIntent,
             resumePendingIntent = resumePendingIntent,
-//            hidePendingIntent = hidePendingIntent,
-            pausedStatus = false,
-        )
+            pendingIntent = pendingIntent,
+        ).build()
 
-        return currentNotificationBuilder!!.build()
 
     }
 
-    fun updateNotification(
-        taskID: String,
-        taskOrder: Int,
-    ) = notificationManager.notify(notificationID+taskOrder, buildTaskNotification(taskID))
+
+    fun updateTaskNotification(
+        taskID: String
+    ) = notificationManager.notify(taskID.toInt(), buildTaskNotification(taskID))
 
     fun startDownloadTaskForeground(
-        taskIDList: List<String?>
+        downloadingTaskIDList: List<String?>
     ){
 
-        startForeground(
-            notificationID,
-            buildSummaryNotification()
-        )
+        if(!isForeground){
 
+            startForeground(
+                notificationID,
+                buildSummaryNotification()
+            )
 
-        taskIDList.mapIndexed { index,taskID ->
-            taskID?.let{
-                notificationManager.notify(
-                    notificationID+(index+1),
-                    buildTaskNotification(taskID)
-                )
+            Log.d("downloadTaskService","service online")
+
+            downloadingTaskIDList.mapIndexed { index,taskID ->
+
+                MultiThreadDownloadManager.findTask(taskID)?.let{
+                    notificationManager.notify(
+                        taskID!!.toInt(),
+                        buildTaskNotification(taskID)
+                    )
+                }
+
             }
 
+
+
+            isForeground = true
         }
-
-
 
     }
 
     fun stopDownloadTaskForeground(){
         stopForeground(STOP_FOREGROUND_REMOVE)
+        notificationManager.cancelAll()
+        isForeground = false
     }
 
     override fun onCreate(){
         super.onCreate()
         taskProgressBinder = TaskProgressBinder(this)
 
-        notificationManager = ContextCompat.getSystemService(
-            this,
-            NotificationManager::class.java
-        ) as NotificationManager
+        notificationManager =
+            ContextCompat.getSystemService(this, NotificationManager::class.java) as NotificationManager
 
     }
 
@@ -448,18 +434,27 @@ class TaskProgressBinderService: Service() {
 
         //而这个中转站是负责和 bind service 的方法 沟通的
 
-        taskProgressBinder.coroutineScope.launch {
+        coroutineScope.launch {
+            //  segments://Host/Path
+            //downloader://123456
             when (intent?.action) {
 
                 ProgressActionType.Pause.actionName -> {
-                    intent.data?.path?.let {
-                        taskProgressBinder.pauseTask(it)
+                    if(intent.data == null) taskProgressBinder.pauseAllTask(taskProgressBinder.getService())
+                    else{
+                        intent.data?.host?.let {
+                            taskProgressBinder.pauseTask(context = taskProgressBinder.getService(),it)
+                        }
                     }
+
                 }
 
                 ProgressActionType.Resume.actionName -> {
-                    intent.data?.path?.let {
-                        taskProgressBinder.resumeTask(it)
+                    if(intent.data == null) taskProgressBinder.resumeAllTask(taskProgressBinder.getService())
+                    else{
+                        intent.data?.host?.let {
+                            taskProgressBinder.resumeTask(context = taskProgressBinder.getService(),it)
+                        }
                     }
                 }
 

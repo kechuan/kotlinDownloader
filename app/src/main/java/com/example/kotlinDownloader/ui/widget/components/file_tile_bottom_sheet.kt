@@ -157,14 +157,9 @@ fun FileTileBottomSheet(
                 //Action Area
                 Column {
 
-                    val targetStatus = if(currentTaskStatus == TaskStatus.Activating){
-                        TaskStatus.Paused
-                    }
-
-                    else{
-                        TaskStatus.Activating
-                    }
-
+                    val targetStatus =
+                        if(currentTaskStatus == TaskStatus.Activating) TaskStatus.Paused
+                        else TaskStatus.Activating
 
                     if(currentTaskStatus != null) {
                         ListItem(
@@ -186,7 +181,6 @@ fun FileTileBottomSheet(
                                                     context = localContext,
                                                     downloadTask = selectingTask,
                                                     threadCount = selectingTask.chunkProgress.size,
-                                                    isResume = true
                                                 )
                                             }
                                         }
@@ -415,21 +409,28 @@ fun DownloadProgressBar(
 
                 val currentProgress = totalDownloaded.toFloat()/downloadTask.taskInformation.fileSize
 
-                if(currentProgress == 0.0F){
-                    Text(
-                        modifier = Modifier.align(Alignment.Center),
-                        text = TaskStatus.Pending.name
-                    )
+                Box(
+                    modifier = Modifier
+                        .height(25.dp)
+                        .fillMaxWidth()
+                ){
+
+                    if(currentProgress == 0.0F){
+                        Text(
+                            modifier = Modifier.align(Alignment.Center),
+                            text = TaskStatus.Pending.name
+                        )
+                    }
+
+                    else{
+                        Text(
+                            modifier = Modifier.align(Alignment.Center),
+                            text = "${String.format("%.2f", currentProgress*100)}%"
+                        )
+                    }
+
+
                 }
-
-                else{
-                    Text(
-                        modifier = Modifier.align(Alignment.Center),
-                        text = "${String.format("%.2f", currentProgress*100)}%"
-                    )
-                }
-
-
 
 
             }

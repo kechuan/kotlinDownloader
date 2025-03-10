@@ -9,8 +9,8 @@ import android.app.Activity
 import com.example.kotlinDownloader.internal.DownloadTask
 import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
-//import NewDownloadTaskDialog
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -43,21 +43,23 @@ import androidx.compose.ui.platform.LocalContext
 import com.example.kotlinDownloader.internal.AppConfig
 import com.example.kotlinDownloader.internal.MultiThreadDownloadManager
 import com.example.kotlinDownloader.internal.MyDataStore
+import com.example.kotlinDownloader.internal.android.defaultToaster
 import com.example.kotlinDownloader.internal.convertChunkSize
 import com.example.kotlinDownloader.internal.convertDownloadedSize
 import com.example.kotlinDownloader.models.DownloadViewModel
 import com.example.kotlinDownloader.ui.widget.catalogs.DownloadPageTabs
 import com.example.kotlinDownloader.ui.widget.catalogs.DownloadRoutes
+import com.example.kotlinDownloader.ui.widget.components.GeneralAlertDialog
 
 
 import kotlinx.coroutines.flow.collectLatest
 
 import kotlinx.coroutines.launch
 
-
 @Composable
-fun DownloadTaskPage(){
+fun DownloadTaskPage(selectedTaskID: String? = null){
     val downloadNavController = DownloadViewModel.localDownloadNavController.current
+    var conflictAction by remember { mutableStateOf({}) }
 
     val localContext = LocalContext.current
     val localClipboard = LocalClipboardManager.current
@@ -66,11 +68,23 @@ fun DownloadTaskPage(){
     var multiChooseMode by remember { mutableStateOf(false) }
     var newTaskDialogStatus by remember { mutableStateOf(false) }
     var renameDialogStatus by remember { mutableStateOf(false) }
+    var conflictDialogStatus by remember { mutableStateOf(false) }
+
     var selectingTile by remember { mutableStateOf(DownloadTask.Default) }
     val taskBottomSheetStatus = selectingTile.taskInformation.taskID != DownloadTask.Default.taskInformation.taskID
 
     var quitReady by remember { mutableStateOf(false) }
     BackHandler(quitReady) { (localContext as Activity).finish() }
+
+
+
+    //处理intent传入
+    LaunchedEffect(selectedTaskID){
+        selectedTaskID?.let{
+            Log.d("taskUI","jump Intent: $selectedTaskID ")
+            selectingTile = MultiThreadDownloadManager.findTask(selectedTaskID) ?: DownloadTask.Default
+        }
+    }
 
     //弹出式窗口区域
     if(newTaskDialogStatus) {
@@ -78,13 +92,39 @@ fun DownloadTaskPage(){
             linkUrl = localClipboard.getText()?.text ?: "", //预计会读取剪切板
             onDismiss = { newTaskDialogStatus = false },
             onConfirm = { downloadTask,threadCount ->
-                MultiThreadDownloadManager.addTask(
+
+                val addStatus = MultiThreadDownloadManager.addTask(
                     context = localContext,
                     downloadTask = downloadTask,
                     threadCount = threadCount
                 )
+
+                if(!addStatus){
+                    conflictDialogStatus = true
+                    conflictAction = {
+                        coroutineScope.launch {
+
+                            MultiThreadDownloadManager.removeTask(
+                                context = localContext,
+                                taskID = downloadTask.taskInformation.taskID,
+                            ).run {
+                                MultiThreadDownloadManager.addTask(
+                                    context = localContext,
+                                    downloadTask = downloadTask,
+                                    threadCount = threadCount
+                                )
+                            }
+
+
+                        }
+
+                    }
+                }
+
             },
             defaultStoragePath = Uri.parse(AppConfig.appConfigs.storagePath),
+            threadCount = AppConfig.appConfigs.threadLimit,
+            speedLimit = AppConfig.appConfigs.speedLimit,
         )
     }
 
@@ -112,6 +152,15 @@ fun DownloadTaskPage(){
         )
     }
 
+    if(conflictDialogStatus){
+        GeneralAlertDialog(
+            title = "下载任务已存在",
+            subTitle = "你的下载任务已在完成队列当中,是否需要重新下载?",
+            onDismiss = { conflictDialogStatus = false },
+            onConfirm = { conflictAction() }
+        )
+    }
+
     if(taskBottomSheetStatus){
         FileTileBottomSheet(
             selectingTask = selectingTile,
@@ -123,6 +172,8 @@ fun DownloadTaskPage(){
 
         )
     }
+
+
 
     //主页面
     Scaffold(
@@ -305,14 +356,15 @@ fun DownloadTaskPage(){
 
                                 ) {
 
-                                    var totalByteDownloaded = 0L
                                     val chunksRangeList = taskList[it].taskInformation.chunksRangeList
                                     val chunkProgress = taskList[it].chunkProgress
 
-                                    val progress = convertDownloadedSize(
+                                    val totalByteDownloaded = convertDownloadedSize(
                                         chunksRangeList = chunksRangeList,
                                         chunkProgress = chunkProgress
-                                    ).toFloat() / taskList[it].taskInformation.fileSize
+                                    )
+
+                                    val progress = totalByteDownloaded.toFloat() / taskList[it].taskInformation.fileSize
 
                                     Log.d("taskUI","Item ${taskList[it].taskInformation.fileName} update: ${totalByteDownloaded}/${taskList[it].taskInformation.fileSize} ${progress * 100}%")
 
@@ -322,6 +374,7 @@ fun DownloadTaskPage(){
                                         totalSize = taskList[it].taskInformation.fileSize,
                                         progress = if(progress >= 0F) progress else 1F, //-1 置 1
                                         currentSpeed = taskList[it].currentSpeed,
+                                        message = taskList[it].message,
                                         multiChooseMode = multiChooseMode,
                                         onClick = {
                                             selectingTile = taskList[it]
@@ -399,61 +452,19 @@ fun TaskFAB(
 ) {
 
     val localContext = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-//    val directoryLauncher = DirectoryLausncher(
-//        context = localContext
-//    ){ selectedUri ->
-//
-//        var storagePath : Uri? = DocumentFile.fromTreeUri(localContext, selectedUri)?.uri
-//
-//        val downloadUrl = "https://github.com/kechuan/banguLite/releases/download/0.5.6%2B1/banguLite-0.5.6.1-armeabi-v7a.apk"
-//        val name = "banguLite-0.5.6.1-armeabi-v7a.apk"
-//
-//        val targetFileUri = convertDocUri(
-//            context = localContext,
-//            storagePath = storagePath,
-//            fileName = name
-//        )
-//
-//        MultiThreadDownloadManager.addTask(
-//            context = localContext,
-//            DownloadTask(
-//                taskInformation = TaskInformation(
-//                    fileName = name,
-//                    taskID = downloadUrl.hashCode().toString(), //TODO 相同ID处理机制When..
-//                    downloadUrl = downloadUrl,
-//                    storagePath = targetFileUri!!.toString(),
-//                ),
-//            ),
-//        )
-//
-//        scope.launch{
-//            Log.d("taskInfo","try to add task: fileName: $name, taskID:${downloadUrl.hashCode().toString()}")
-//            MultiThreadDownloadManager.waitForAll()
-//        }
-//    }
-//
-//
-//    // 创建启动器来启动文件选择器，并处理结果 一般是读取
-//    val filePickerLauncher = FilePickerLauncher{ uri ->
-//        uri?.let{
-//            var fileStoragePath : Uri = uri
-//            Log.d("test","uri:$fileStoragePath")
-//
-//        }
-//    }
 
     FloatingActionButton(
         onClick = {
+
             if(deleteStatus){
                 MultiThreadDownloadManager.removeTasks(localContext)
                 onDelete()
+                defaultToaster(localContext, "已删除任务")
+
             }
 
             else{
                 addAction()
-//                directoryLauncher.launch(null)
             }
 
         },

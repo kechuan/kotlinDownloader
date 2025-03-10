@@ -74,6 +74,8 @@ fun main(){
     val scope = CoroutineScope(Dispatchers.IO)
 
 
+
+
    runBlocking {
        launch {
            delayDuration(2000).run{ println("first") }
@@ -88,15 +90,13 @@ fun main(){
            println("C-middle")
 
        }
+
+       // result
+       // C => first => A => B
    }
 
 
     println("end of main")
-
-
-
-
-
 
 
 }

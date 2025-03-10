@@ -1,28 +1,22 @@
 package com.example.kotlinDownloader.internal
 
+
 import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
-import co.touchlab.stately.concurrency.value
 import com.example.kotlinDownloader.internal.android.TaskProgressBinderService
+import com.example.kotlinDownloader.internal.android.defaultToaster
+import com.example.kotlinDownloader.internal.android.requestNoticePermission
 import com.example.kotlinDownloader.models.DownloadViewModel
-
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import okhttp3.Headers
-
-
 import java.io.FileOutputStream
 import java.io.IOException
-
 import java.net.URL
 import java.time.Instant
-import java.util.Timer
-import java.util.TimerTask
-import java.util.concurrent.atomic.AtomicInteger
-
-import kotlin.text.toLongOrNull
+import java.util.*
 
 typealias ProgressCallback = (current: Long, total: Long) -> Unit
 
@@ -47,14 +41,8 @@ object MultiThreadDownloadManager: ViewModel() {
         downloadingTaskState.value = storageTasksFlow.first().filter{
             it.taskStatus != TaskStatus.Finished
         }.map {
-
-            if(it.taskStatus == TaskStatus.Activating){
-                it.copy(taskStatus = TaskStatus.Paused)
-            }
-
-            else{
-                it
-            }
+            if(it.taskStatus == TaskStatus.Activating) it.copy(taskStatus = TaskStatus.Paused)
+            else it
         }
 
         finishedTaskState.value = storageTasksFlow.first().filter {
@@ -74,17 +62,101 @@ object MultiThreadDownloadManager: ViewModel() {
         context: Context,
         downloadTask: DownloadTask?,
         threadCount: Int = 5,
-        isResume: Boolean = false
-    ) {
+    ): Boolean{
 
         downloadTask?.let{ downloadTask ->
-            //不存在任务时添加
-            if(!jobs.any{
-                //outside name
-                //@Deprecated Job.coroutineContext[CoroutineName]?.name
-                val jobName = (it as CoroutineScope).coroutineContext[CoroutineName]?.name
-                jobName == downloadTask.taskInformation.taskID
-            }){
+
+            val taskID: String = downloadTask.taskInformation.taskID
+
+            //任务重复添加检测
+
+            //exist in TasksFlow
+            if(findTask(taskID) != null){
+
+                //exist in downloadFlow
+                if(downloadingTaskFlow.value.find{ it.taskInformation.taskID == taskID } != null){
+                    //自动处理为 Stop/Pause => resume 逻辑
+
+                    //exist in Job
+                    if(jobs.any{
+                        //@Deprecated Job.coroutineContext[CoroutineName]?.name
+                        val jobName = (it as CoroutineScope).coroutineContext[CoroutineName]?.name
+                        jobName == downloadTask.taskInformation.taskID
+                    }){
+                        //被 updateTaskStatus Activity 接管
+                        Log.d("taskInfo","the task: ${downloadTask.taskInformation.fileName} is already exists! resume it.")
+
+                        scope.launch {
+                            updateTaskStatus(
+                                context = context,
+                                taskID = taskID,
+                                taskStatus = TaskStatus.Activating
+                            )
+                        }
+
+                    }
+
+                    else{
+
+                        val job = CoroutineScope(
+                            Dispatchers.IO +
+                            CoroutineName(downloadTask.taskInformation.taskID)
+                        ).launch {
+                            //inside name
+                            Log.d("taskInfo","job ScopeName name: ${coroutineContext[CoroutineName]?.name} / ${downloadTask.taskInformation.downloadUrl.hashCode()}")
+
+                            try {
+                                
+                                var chunksRangeList: List<Pair<Long, Long>> = downloadTask.taskInformation.chunksRangeList
+                                var chunkDownloadedList: MutableList<Int> = downloadTask.chunkProgress.toMutableList()
+                                
+
+                                taskJobBuilder(
+                                    context = context,
+                                    downloadTask = downloadTask,
+                                    chunkRangeList = chunksRangeList,
+                                    chunkDownloadedList = chunkDownloadedList
+                                ).join()
+                            }
+
+                            catch (e: Exception) {
+                                println("taskInfo: ${URL(downloadTask.taskInformation.downloadUrl)}, error: ${e.toString()}")
+                                //以后还要传递 错误信息给任务栏上
+
+                                withContext(Dispatchers.Main){
+                                    updateTaskStatus(
+                                        context = context,
+                                        downloadTask.taskInformation.taskID,
+                                        TaskStatus.Stopped
+                                    )
+                                }
+
+                                return@launch
+
+
+                            }
+
+                        }
+
+
+                        jobs.add(job)
+
+                    }
+
+                }
+
+                //exist in finishedFlow
+                else{
+                    // 否则询问是否要重新下载
+                    // Dialog提问 是否需要重新下载 如实际确认则为 删除finishedFlow的存在 然后重新执行这个函数
+                    return@addTask false
+                }
+
+            }
+
+            else{
+
+                downloadingTaskState.value = downloadingTaskFlow.value + downloadTask
 
                 val job = CoroutineScope(
                     Dispatchers.IO +
@@ -95,90 +167,85 @@ object MultiThreadDownloadManager: ViewModel() {
 
                     try {
 
-                        var fileSize = 0L
-                        lateinit var chunksRangeList: List<Pair<Long, Long>>
-                        lateinit var chunkDownloadedList: MutableList<Int>
+                        var fileSize = emptyLength
 
-                        if(!isResume){
-                            //没有三目表达式的情况之下 真的很不喜欢把 if/else 写在一个变量定义里
-                            //假如其已经在dialog里获取到信息就直接沿用它的信息
-                            if( downloadTask.taskInformation.fileSize != 0L){
-                                fileSize = downloadTask.taskInformation.fileSize
-                            }
-
-                            else{
-
-                                //TODO 未知文件大小的处理
-                                fileSize = async {
-                                    getFileInformation(downloadTask.taskInformation.downloadUrl).fileSize
-                                }.await().also {
-
-                                    Log.d("taskInfo","fileName : ${downloadTask.taskInformation.fileName} contentLength Length: $it.")
-
-                                    if(it == 0L) {
-                                        Log.d("taskInfo","contentLength get failed. cancel Task.")
-                                        cancelJob(downloadTask.taskInformation.taskID)
-                                        return@launch
-                                    }
-                                }
-
-                            }
-
-                            //UI任务显示: 初始化
-
-                            Log.d("taskInfo","start allocChunks, UI Show Task")
-
-                            downloadingTaskState.value = downloadingTaskFlow.value + downloadTask
-                            chunksRangeList = calculateChunks(fileSize, threadCount)
-                            chunkDownloadedList = MutableList<Int>(chunksRangeList.size){0}
-
-                            Log.d("taskInfo","chunkList: $chunksRangeList")
-
-                            val latestDownloadTask = downloadTask.copy(
-                                taskInformation = downloadTask.taskInformation.copy(
-                                    chunksRangeList = chunksRangeList,
-                                    fileSize = fileSize,
-                                ),
-                                chunkProgress = chunkDownloadedList,
-
-                                taskStatus = TaskStatus.Activating
-                            )
-
-                            updateTaskInformation(
-                                taskID = latestDownloadTask.taskInformation.taskID,
-                                propTransform = { latestDownloadTask }
-                            )
-
-                            MyDataStore.addTask(
-                                context = context,
-                                newTask = latestDownloadTask
-                            )
-
-                            preallocateSpace(
-                                context = context,
-                                uri = Uri.parse(downloadTask.taskInformation.storagePath),
-                                targetSize = fileSize
-                            ).run{
-                                //正式进入下载状态
-                                withContext(Dispatchers.Main){
-                                    updateTaskStatus(
-                                        context = context,
-                                        downloadTask.taskInformation.taskID,
-                                        TaskStatus.Activating
-                                    )
-                                }
-
-                            }
-
-                            Log.d("taskInfo","Starting multi-thread download: currentTask: $downloadTask")
-
-
+                        //没有三目表达式的情况之下 真的很不喜欢把 if/else 写在一个变量定义里
+                        //假如其已经在dialog里获取到信息就直接沿用它的信息
+                        if( downloadTask.taskInformation.fileSize != emptyLength){
+                            fileSize = downloadTask.taskInformation.fileSize
                         }
 
                         else{
-                            chunksRangeList = downloadTask.taskInformation.chunksRangeList
-                            chunkDownloadedList = downloadTask.chunkProgress.toMutableList()
+
+
+
+                            fileSize = async {
+                                getFileInformation(downloadTask.taskInformation.downloadUrl).fileSize
+                            }.await().also {
+
+                                Log.d("taskInfo","fileName : ${downloadTask.taskInformation.fileName} contentLength Length: $it.")
+
+                                if(it == emptyLength) {
+                                    Log.d("taskInfo","contentLength get failed. cancel Task.")
+                                    cancelJob(downloadTask.taskInformation.taskID)
+                                    defaultToaster(context,"已取消任务: 无法获取文件信息")
+                                    return@launch
+                                }
+                            }
+
                         }
+
+                        var chunksRangeList: List<Pair<Long, Long>> = calculateChunks(fileSize, threadCount)
+                        var chunkDownloadedList: MutableList<Int>  = MutableList<Int>(chunksRangeList.size){0}
+
+                        Log.d("taskInfo","chunkList: $chunksRangeList")
+
+                        val latestDownloadTask = downloadTask.copy(
+                            taskInformation = downloadTask.taskInformation.copy(
+                                chunksRangeList = chunksRangeList,
+                                fileSize = fileSize,
+                            ),
+                            chunkProgress = chunkDownloadedList,
+
+                            taskStatus = TaskStatus.Activating
+                        )
+
+                        updateTaskInformation(
+                            taskID = latestDownloadTask.taskInformation.taskID,
+                            propTransform = { latestDownloadTask }
+                        )
+
+                        MyDataStore.addNewTask(
+                            context = context,
+                            newTask = latestDownloadTask
+                        )
+
+                        preallocateSpace(
+                            context = context,
+                            uri = Uri.parse(downloadTask.taskInformation.storagePath),
+                            targetSize = fileSize
+                        ).run{
+                            //正式进入下载状态
+                            withContext(Dispatchers.Main){
+                                updateTaskStatus(
+                                    context = context,
+                                    downloadTask.taskInformation.taskID,
+                                    TaskStatus.Activating
+                                )
+
+                                //发送通知
+                                if(requestNoticePermission(context)){
+                                    TaskProgressBinderService.taskProgressBinder.startForeground()
+                                }
+
+
+                            }
+
+                        }
+
+                        Log.d("taskInfo","Starting multi-thread download: currentTask: $downloadTask")
+
+                        
 
                         taskJobBuilder(
                             context = context,
@@ -200,6 +267,8 @@ object MultiThreadDownloadManager: ViewModel() {
                             )
                         }
 
+                        return@launch
+
 
                     }
 
@@ -207,15 +276,11 @@ object MultiThreadDownloadManager: ViewModel() {
 
 
                 jobs.add(job)
-
             }
 
-            else{
-                Log.d("taskInfo","the task: ${downloadTask.taskInformation.fileName} is already exists!")
-            }
         }
 
-
+        return true
 
     }
 
@@ -244,12 +309,12 @@ object MultiThreadDownloadManager: ViewModel() {
         //监听UI
         val currentSpeedLimitFlow: StateFlow<Long>? = downloadingTaskFlow
             .map {
-                it.firstOrNull { it.taskInformation.taskID == downloadTask.taskInformation.taskID }?.speedLimit ?: 0L
+                it.firstOrNull { it.taskInformation.taskID == downloadTask.taskInformation.taskID }?.speedLimit ?: emptyLength
             }
             .stateIn(
                 scope = scope,
                 started = SharingStarted.Eagerly,
-                initialValue = 0L
+                initialValue = emptyLength
             )
 
         val activeTaskCountState = MutableStateFlow<Int> ( currentChunkProgress.size )
@@ -280,29 +345,19 @@ object MultiThreadDownloadManager: ViewModel() {
                     it.taskInformation.taskID == downloadTask.taskInformation.taskID
                 }?.chunkProgress?.sum() ?: 0
 
-                //250ms update
+                //250ms update 影响 实际download的回调限速问题
                 val speed = ((currentChunkProgress.sum() - recordSize)*4).toLong()
-//                val activeChunk = currentChunkProgress.size - currentChunkProgress.count { it == chunkFinished }
                 activeTaskCountState.value = currentChunkProgress.size - currentChunkProgress.count { it == chunkFinished }
 
-//                //每个线程的 DelayDuration
-//                currentDelayDurationState.value =
-//                    if(currentSpeedLimitFlow?.value == 0L || speed == 0L){ 0.0F }
-//                    else{
-//                        (currentSpeedLimitFlow?.value!!)/(speed).toFloat()* //per ms delay
-//                         activeChunk // per chunk delay
-//
-//                    }
-
-                updateTaskInformation(
+                //UI
+                updateTaskProgress(
                     taskID = downloadTask.taskInformation.taskID,
-                ){
-                    it.copy(
-                        chunkProgress = currentChunkProgress.toList(),
-                        currentSpeed = speed,
-                    )
-                }.run{
-//                    Log.d("taskInfo","speed: $speed / delay ${currentDelayDurationState.value} ms / speedLimitFlow:${currentSpeedLimitFlow?.value}" )
+                    chunkProgressList = currentChunkProgress,
+                    currentSpeed = speed
+                ).run{
+                    //通知
+                    TaskProgressBinderService.taskProgressBinder.updateTaskNotification(downloadTask.taskInformation.taskID)
+
                     if(timerCount % 4 == 0){
 
                         val newTaskInformation = findTask(downloadTask.taskInformation.taskID)
@@ -342,7 +397,6 @@ object MultiThreadDownloadManager: ViewModel() {
 
         updateSpeedTimer.schedule(updateTask, 1000, 250)
 
-        val activeTaskCount = AtomicInteger(chunkDownloadedList.size)
         val chunkJobs = chunkRangeList.mapIndexed { chunkIndex, (start, end) ->
 
             if (chunkDownloadedList[chunkIndex] != chunkFinished) {
@@ -355,14 +409,11 @@ object MultiThreadDownloadManager: ViewModel() {
 
                         // example: total: (0-300) storage:50(0-49) newRequest => 50-300
                         // rangeStart = defaultStart + chunkDownloaded
-                        rangeStart =
-                            if(chunkDownloadedList.all{bytes -> bytes == 0}) start
-                            else start + chunkDownloadedList[chunkIndex],
+                        rangeStart = start + chunkDownloadedList[chunkIndex],
                         rangeEnd = end,
 
                         chunkIndex = chunkIndex,
                         taskActiveState = currentTaskStatusFlow,
-//                        currentDelayDurationState = currentDelayDurationState,
                         speedLimitFlow = currentSpeedLimitFlow,
                         activeTaskCountState = activeTaskCountState,
                         downloadCallback = { current, total ->
@@ -373,46 +424,30 @@ object MultiThreadDownloadManager: ViewModel() {
                             currentChunkProgress[chunkIndex] = current.toInt() + chunkDownloadedList[chunkIndex]
 
                             if (current >= total) {
-                                activeTaskCount.decrementAndGet()
+
+                                activeTaskCountState.value -= 1
+//                                activeTaskCount.decrementAndGet()
                                 //已完成标志
                                 currentChunkProgress[chunkIndex] = chunkFinished
-                                Log.d("taskInfo","chunkIndex:$chunkIndex completed. residual Task: $activeTaskCount")
+                                Log.d("taskInfo","chunkIndex:$chunkIndex completed. residual Task: ${activeTaskCountState.value}")
 
                                 //问题 当最后一个 chunk completed 的时候 目前的数据如下: [-1, -1, 2201480, -1, -1, -1]
                                 //说明。。流有延迟 怎么办? 那就干脆整一个外部的count吧
-                                if (activeTaskCount.value == 0) {
+//                                if (activeTaskCount.value == 0) {
+                                if (activeTaskCountState.value == 0) {
 
                                     Log.d(
                                         "taskInfo",
                                         "${downloadTask.taskInformation.fileName} all chunks completed."
                                     )
 
-                                    scope.launch {
-
-                                        withContext(Dispatchers.Main) {
-
-                                            updateTaskProgress(
-                                                downloadTask.taskInformation.taskID,
-                                                chunkProgressList = MutableList<Int>(chunkRangeList.size){chunkFinished},
-                                            )
-
-                                            updateTaskStatus(
-                                                context = context,
-                                                downloadTask.taskInformation.taskID,
-                                                TaskStatus.Finished
-                                            )
-
-                                            removeTask(
-                                                context = context,
-                                                taskID = downloadTask.taskInformation.taskID,
-                                                isCompleteAutoRemove = true,
-                                            )
-                                        }
-
+                                    finishTaskCallback(
+                                        context,
+                                        downloadTask
+                                    ).run {
                                         updateSpeedTimer.cancel()
-
-
                                     }
+
 
 
                                 }
@@ -429,8 +464,7 @@ object MultiThreadDownloadManager: ViewModel() {
             }
 
             else{
-                activeTaskCount.decrementAndGet()
-                //just empty
+                activeTaskCountState.value -= 1
                 launch {  }
             }
 
@@ -471,9 +505,8 @@ object MultiThreadDownloadManager: ViewModel() {
                          latestDownloadTask
                      }
 
-                     else{
-                         task
-                     }
+                     else task
+
                  }
              }
          }
@@ -486,9 +519,8 @@ object MultiThreadDownloadManager: ViewModel() {
                          latestDownloadTask
                      }
 
-                     else{
-                         task
-                     }
+                     else task
+
                  }
              }
          }
@@ -500,9 +532,8 @@ object MultiThreadDownloadManager: ViewModel() {
     private fun updateTaskProgress(
         taskID: String,
         chunkProgressList: MutableList<Int>,
-        currentSpeed: Long = 0L,
+        currentSpeed: Long = emptyLength,
     ) = updateTaskInformation(taskID) {
-//        Log.d("taskInfo","chunkProgressList:${chunkProgressList.sum()}")
         it.copy(
             chunkProgress = chunkProgressList.toList(),
             currentSpeed = currentSpeed
@@ -518,13 +549,12 @@ object MultiThreadDownloadManager: ViewModel() {
         taskID: String,
         fileName: String,
     ) = updateTaskInformation(taskID) { it.copy(
-        taskInformation =
-            it.taskInformation.copy(fileName = fileName)
+        taskInformation = it.taskInformation.copy(fileName = fileName)
     )}
 
     //这里指代的是 所有 hangup 亦或者是 stop状态的Task
 
-    suspend fun pauseAllTask(context: Context){
+    fun pauseAllTask(context: Context){
         downloadingTaskFlow.value.filter {
             it.taskStatus == TaskStatus.Activating
         }.forEach { downloadTask ->
@@ -536,55 +566,47 @@ object MultiThreadDownloadManager: ViewModel() {
         }
     }
 
-    suspend fun resumeAllTask(context: Context){
+    fun resumeAllTask(context: Context){
         downloadingTaskFlow.value.filter {
             it.taskStatus == TaskStatus.Paused ||
             it.taskStatus == TaskStatus.Stopped
         }.forEach { downloadTask ->
 
-            //stop状态 pause会被拦截
-            addTask(
-                context = context,
-                downloadTask,
-                isResume = true
-            ).run {
-                //pause状态 解除hang up 状态
-                updateTaskStatus(
-                    context,
-                    downloadTask.taskInformation.taskID,
-                    TaskStatus.Activating
-                )
-
-                TaskProgressBinderService.taskProgressBinder.startForeground()
-            }
-
-
+            updateTaskStatus(
+                context,
+                downloadTask.taskInformation.taskID,
+                TaskStatus.Activating
+            )
 
         }
     }
 
-     suspend fun updateTaskStatus(
+    fun updateTaskStatus(
          context: Context,
          taskID: String,
          taskStatus: TaskStatus,
     ){
 
-         var newTaskInformation: DownloadTask? = null
+        updateTaskInformation(taskID) {
+          var newTaskInformation: DownloadTask = it.copy(taskStatus = taskStatus)
 
-         updateTaskInformation(taskID) {
-             newTaskInformation = it.copy(taskStatus = taskStatus)
-             it.copy(taskStatus = taskStatus)
-        }
+          scope.launch{
+              MyDataStore.updateTask(
+                  context = context,
+                  taskID = taskID,
+                  newTaskInformation = newTaskInformation
+              ).run {
+                  Log.d("taskInfo","storage Info: $newTaskInformation")
+                  Log.d("taskStatus", "$taskID New task status: ${downloadingTaskFlow.value.find { it.taskInformation.taskID == taskID }?.taskStatus}")
+              }
 
-         MyDataStore.updateTask(
-             context = context,
-             taskID = taskID,
-             newTaskInformation = newTaskInformation
-         ).run {
-             Log.d("taskInfo","storage Info: $newTaskInformation")
-         }
+          }
 
-        Log.d("taskStatus", "$taskID New task status: ${downloadingTaskFlow.value.find { it.taskInformation.taskID == taskID }?.taskStatus}")
+          newTaskInformation
+      }.run{
+        TaskProgressBinderService.taskProgressBinder.updateTaskNotification(taskID)
+        TaskProgressBinderService.taskProgressBinder.updateSummaryNotification()
+      }
 
     }
 
@@ -664,12 +686,9 @@ object MultiThreadDownloadManager: ViewModel() {
     }
 
     fun removeTasks(context: Context){
-        DownloadViewModel.MultiChooseTaskIDSet.forEach {
-            scope.launch {
-                removeTask(
-                    context = context,
-                    taskID = it,
-                )
+        scope.launch {
+            DownloadViewModel.MultiChooseTaskIDSet.forEach {
+                removeTask(context = context, taskID = it)
             }
         }
 
@@ -696,16 +715,16 @@ object MultiThreadDownloadManager: ViewModel() {
 
             try{
 
-                val headResponse = downloadRequest.getCustomHead(downloadUrl)
-
                 lateinit var headers: Headers
 
+                val headResponse = async { downloadRequest.getCustomHead(downloadUrl) }.await()
                 if(headResponse.isSuccessful){ headers = headResponse.headers() }
 
                 else{
                     Log.d("taskInfo","headResponse Error: triggering fallback contentGET")
-                    val getResponse = downloadRequest.getCustomUrl(downloadUrl,"bytes=0-1")
+                    val getResponse = async { downloadRequest.getCustomUrl(downloadUrl,"bytes=0-1") }.await()
                     if(getResponse.isSuccessful){ headers = getResponse.headers() }
+
                 }
 
                 // content-disposition: attachment; filename=banguLite-0.5.8-armeabi-v7a.apk
@@ -713,15 +732,16 @@ object MultiThreadDownloadManager: ViewModel() {
                 taskInformation = taskInformation.copy(
                     downloadUrl = downloadUrl,
                     taskID = downloadUrl.hashCode().toString(),
-                    fileSize = headers["content-length"]?.toLongOrNull() ?: 0L,
+                    fileSize = headers["content-length"]?.toLongOrNull() ?: emptyLength,
                     fileName = headers["content-disposition"]?.toString()?.split("filename=")?.last() ?: taskInformation.fileName,
 
                 )
 
             }
 
-            catch (e: Exception) {
-                Log.d("taskInfo", e.toString())
+            catch (networkError: Exception) {
+                Log.d("taskInfo", networkError.toString())
+                //message 抛出
             }
         }
 
@@ -734,7 +754,7 @@ object MultiThreadDownloadManager: ViewModel() {
 
      fun calculateChunks(fileSize: Long, chunkCount: Int): List<Pair<Long, Long>> {
         val chunks = mutableListOf<Pair<Long, Long>>()
-        var start = 0L
+        var start = emptyLength
 
         //5192:5 => 1038..2
 
@@ -764,11 +784,11 @@ object MultiThreadDownloadManager: ViewModel() {
         var chunkFailedCount = 0
         val maxRetries = 3
 
-        Log.d("taskInfo","chunkIndex: $chunkIndex : [$rangeStart/$rangeEnd]")
+//        Log.d("taskInfo","chunkIndex: $chunkIndex : [$rangeStart/$rangeEnd]")
 
         val buffer = ByteArray(8 * 1024)
         val totalLength = (rangeEnd - rangeStart)+1
-        var totalBytesRead = 0L
+        var totalBytesRead = emptyLength
 
         //重试链接 直到任一chunk达到3次次数 直接置为 stop 然后 停止并CancelJob
 
@@ -781,7 +801,7 @@ object MultiThreadDownloadManager: ViewModel() {
                     if(totalBytesRead == totalLength) return
                     //奇怪问题 当下载完毕的时候 会抛出 501 附带 chunkIndex:1 failedAt: 1287085/1287085
                     //是的 下载完成之后的501错误 我不明白这是怎么回事
-                    throw Exception("Download failed with : ${response.code()}, ${response.message()}")
+                    throw Exception("Download failed with: ${response.code()}, ${response.message()}")
                 }
 
                 if (TaskStatus.Pending == taskActiveState?.value) {
@@ -797,11 +817,11 @@ object MultiThreadDownloadManager: ViewModel() {
                     }
                 }
 
-                var periodicBytesRead = 0L
+                var periodicBytesRead = emptyLength
                 var startTime = Instant.now().toEpochMilli()
 
                 // 根据目标速度计算应该花费的时间（毫秒）
-                var expectedTimeMs = 0L
+                var expectedTimeMs = emptyLength
 
                 response.body()?.let{
                     it.byteStream().use{ input ->
@@ -818,9 +838,11 @@ object MultiThreadDownloadManager: ViewModel() {
                                         fos.write(buffer, 0, currentBytesRead) // 自动更新文件指针
                                         totalBytesRead += currentBytesRead
 
+//                                        Log.d("taskInfo","index:$chunkIndex $totalBytesRead / $totalLength")
+
                                         speedLimitFlow?.let{
 
-                                            if(speedLimitFlow.value == 0L) return@let
+                                            if(speedLimitFlow.value == emptyLength) return@let
 
                                             val elapsedTimeMs = Instant.now().toEpochMilli() - startTime
                                             val limitBytesPerChunk = speedLimitFlow.value / activeTaskCountState!!.value //per chunk
@@ -844,7 +866,7 @@ object MultiThreadDownloadManager: ViewModel() {
                                             // 定期重置计时器（不管是否延迟）
                                             if (periodicBytesRead > limitBytesPerChunk || elapsedTimeMs > 1000) {
                                                 startTime = Instant.now().toEpochMilli()
-                                                periodicBytesRead = 0L
+                                                periodicBytesRead = emptyLength
                                             }
 
 
@@ -874,6 +896,7 @@ object MultiThreadDownloadManager: ViewModel() {
             }
 
             catch(e: Exception) {
+                if(totalBytesRead == totalLength) return
 
                 chunkFailedCount+=1
 
@@ -893,13 +916,13 @@ object MultiThreadDownloadManager: ViewModel() {
                 }
 
                 else{
-
-                    Log.d("taskInfo","[${downloadTask.taskInformation.fileName}] chunkIndex:$chunkIndex failedAt: $totalBytesRead/$totalLength \n failed reason: ${e.toString()} try resumed it After ${chunkFailedCount}s ")
+                    Log.d(
+                        "taskInfo",
+                        "[${downloadTask.taskInformation.fileName}] chunkIndex:$chunkIndex failedAt: $totalBytesRead/$totalLength \n " +
+                        "failed reason: ${e.toString()} try resumed it After ${chunkFailedCount}s "
+                    )
                     delay(1000*chunkFailedCount.toLong())
                 }
-
-
-                //以后还要传递 错误信息给任务栏上?
 
             }
 
@@ -908,7 +931,7 @@ object MultiThreadDownloadManager: ViewModel() {
     }
 
     fun findTask(
-        taskID: String
+        taskID: String?
     ): DownloadTask? {
         return downloadingTaskFlow.value.find{ it.taskInformation.taskID == taskID } ?:
                finishedTaskFlow.value.find{ it.taskInformation.taskID == taskID }
@@ -923,14 +946,43 @@ object MultiThreadDownloadManager: ViewModel() {
     }
 
     // 取消所有任务
-    fun cancelAll() {
-        jobs.forEach { it.cancel() }
+    fun cancelAll() = jobs.forEach { it.cancel() }
+
+    fun finishTaskCallback(
+        context: Context,
+        downloadTask: DownloadTask
+    ){
+
+        updateTaskProgress(
+            taskID = downloadTask.taskInformation.taskID,
+            chunkProgressList = MutableList<Int>(downloadTask.chunkProgress.size){chunkFinished},
+            currentSpeed = emptyLength,
+        )
+
+        updateTaskStatus(
+            context = context,
+            downloadTask.taskInformation.taskID,
+            TaskStatus.Finished
+        )
+
+        scope.launch {
+            removeTask(
+                context = context,
+                taskID = downloadTask.taskInformation.taskID,
+                isCompleteAutoRemove = true,
+            )
+        }.run {
+
+            // TODO 遥遥无期的重构
+            // 为什么 taskStatus 声明后 还要在这里再插入一个 updateSummaryNotification?
+            // 因为 updateTaskStatus 时 的 updateSummaryNotification 的流 还在 downloading里
+            // 老实说已经开始吃亏了 吃为什么要特地造两条流的认知亏(当时不知道有filter这样的东西)
+            TaskProgressBinderService.taskProgressBinder.updateSummaryNotification()
+        }
     }
 
 
 
 
 }
-
-
 

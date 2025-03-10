@@ -8,7 +8,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.serialization.Serializable
 
 const val chunkFinished = -1
-val emptyLength: Long? = null
+const val emptyLength = 0L
 
 val Padding6 = @Composable { Spacer(modifier = Modifier.padding(6.dp)) }
 val Padding12 = @Composable { Spacer(modifier = Modifier.padding(12.dp)) }

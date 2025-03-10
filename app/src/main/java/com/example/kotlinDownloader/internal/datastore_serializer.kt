@@ -119,7 +119,7 @@ object AppConfig{
 
 object MyDataStore{
 
-    suspend fun addTask(context: Context, newTask:DownloadTask){
+    suspend fun addNewTask(context: Context, newTask:DownloadTask){
         context.tasksData.updateData { current ->
             DownloadTasks(current.tasks + newTask)
         }
